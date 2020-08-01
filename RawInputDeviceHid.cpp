@@ -43,6 +43,10 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     if (!IsValidHandle(hid_handle.get()))
         return false;
 
+    // Fetch the human-friendly |m_ManufacturerString|, if available.
+    if (!QueryManufacturerString(hid_handle))
+        m_ManufacturerString = "Unknown Vendor";
+
     // Fetch the human-friendly |m_ProductString|, if available.
     if (!QueryProductString(hid_handle))
         m_ProductString = "Unknown HID Device";
@@ -78,6 +82,21 @@ bool RawInputDeviceHid::QueryHidInfo()
     //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEHID));
 
     std::memcpy(&m_HidInfo, &device_info.keyboard, sizeof(m_HidInfo));
+
+    return true;
+}
+
+bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& hid_handle)
+{
+    //DCHECK(hid_handle.IsValid());
+
+    std::wstring manufacturerString;
+    manufacturerString.resize(RawInputDevice::kIdLengthCap);
+
+    if (!HidD_GetManufacturerString(hid_handle.get(), &manufacturerString.front(), RawInputDevice::kIdLengthCap))
+        return false;
+
+    m_ManufacturerString.assign(toUtf8(manufacturerString));
 
     return true;
 }

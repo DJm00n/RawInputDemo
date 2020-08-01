@@ -29,6 +29,7 @@ protected:
     ScopedHandle OpenHidHandle() const;
 
     bool QueryHidInfo();
+    bool QueryManufacturerString(ScopedHandle& hid_handle);
     bool QueryProductString(ScopedHandle& hid_handle);
     bool QueryDeviceCapabilities();
     void QueryButtonCapabilities(uint16_t button_count);
@@ -47,6 +48,7 @@ private:
 
 private:
     RID_DEVICE_INFO_HID m_HidInfo = {};
+    std::string m_ManufacturerString;
     std::string m_ProductString;
 
     size_t m_ButtonsLength = 0;
