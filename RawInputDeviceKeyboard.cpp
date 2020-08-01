@@ -33,12 +33,12 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     if (!IsValidHandle(keyboard_handle.get()))
         return false;
 
-    if (!KeyboardSetLeds(keyboard_handle))
-        return false;
+    //if (!KeyboardSetLeds(keyboard_handle))
+    //   return false;
 
     // Fetch the human-friendly |m_ProductString|, if available.
-    //if (!QueryKeyboardString(keyboard_handle))
-    //    m_ProductString = "Unknown HID Device";
+    if (!QueryProductString())
+        m_ProductString = "Unknown Keyboard";
 
     //input |= (leds << 16);
     //if (!DeviceIoControl(kbd, IOCTL_KEYBOARD_SET_INDICATORS, &input, sizeof(input), NULL, 0, &len, NULL))
@@ -52,7 +52,10 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
 ScopedHandle RawInputDeviceKeyboard::OpenKeyboardHandle() const
 {
     // keyboard is write-only device
-    return ScopedHandle(::CreateFile(fromUtf8(m_Name).c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+    return ScopedHandle(::CreateFile(
+        fromUtf8(m_Name).c_str(), GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
+        OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
 
 bool RawInputDeviceKeyboard::QueryKeyboardInfo()
@@ -65,6 +68,18 @@ bool RawInputDeviceKeyboard::QueryKeyboardInfo()
     //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
 
     std::memcpy(&m_KeyboardInfo, &device_info.keyboard, sizeof(m_KeyboardInfo));
+
+    return true;
+}
+
+bool RawInputDeviceKeyboard::QueryProductString()
+{
+    //DCHECK(hid_handle.IsValid());
+
+    if (m_KeyboardInfo.dwNumberOfKeysTotal == 0)
+        return false;
+
+    m_ProductString = std::to_string(m_KeyboardInfo.dwNumberOfKeysTotal) + "-key keyboard";
 
     return true;
 }

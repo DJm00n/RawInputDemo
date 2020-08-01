@@ -18,8 +18,11 @@ protected:
     ScopedHandle OpenKeyboardHandle() const;
 
     bool QueryKeyboardInfo();
+    bool QueryProductString();
+
     bool KeyboardSetLeds(ScopedHandle& hid_handle);
 
 private:
     RID_DEVICE_INFO_KEYBOARD m_KeyboardInfo = {};
+    std::string m_ProductString;
 };
