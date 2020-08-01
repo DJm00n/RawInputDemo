@@ -5,13 +5,10 @@
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
-    m_IsValid = true;
+    m_IsValid = QueryDeviceInfo();
 }
 
-RawInputDeviceMouse::~RawInputDeviceMouse()
-{
-
-}
+RawInputDeviceMouse::~RawInputDeviceMouse() = default;
 
 void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
 {
@@ -79,4 +76,13 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
     {
 
     }
+}
+
+bool RawInputDeviceMouse::QueryDeviceInfo()
+{
+    // Fetch the device's |name_| (RIDI_DEVICENAME).
+    if (!QueryRawDeviceName())
+        return false;
+
+    return true;
 }

@@ -6,6 +6,7 @@
 
 #include "targetver.h"
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#define NOMINMAX
 // Windows Header Files
 #include <windows.h>
 // C RunTime Header Files
@@ -16,6 +17,7 @@
 #include <strsafe.h>
 #include <hidusage.h>
 
+#include <algorithm>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,4 +29,6 @@ VOID _DBGPRINT(LPCWSTR kwszFunction, INT iLineNumber, LPCWSTR kwszDebugFormatStr
 #else
 #define DBGPRINT( kwszDebugFormatString, ... ) ;;
 #endif
+
+#include "utils.h"
 

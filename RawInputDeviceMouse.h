@@ -8,5 +8,8 @@ public:
     RawInputDeviceMouse(HANDLE handle);
     ~RawInputDeviceMouse();
 
+protected:
     void OnInput(const RAWINPUT* input) override;
+
+    bool QueryDeviceInfo();
 };

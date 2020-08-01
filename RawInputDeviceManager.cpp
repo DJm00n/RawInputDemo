@@ -70,7 +70,7 @@ void RawInputDeviceManager::EnumerateDevices()
         }
         else
         {
-            auto new_device = RawInputDevice::CreateRawInputDevice(device_list[i].dwType, device_handle);
+            auto new_device = RawInputDevice::CreateRawInputDevice(device_handle);
             if (!new_device->IsValid())
             {
                 continue;
@@ -186,17 +186,7 @@ LRESULT RawInputDeviceManager::OnInputDeviceChange(bool arrival, HANDLE handle)
             return 0;
         }
 
-        RID_DEVICE_INFO deviceInfo;
-        UINT size = sizeof(RID_DEVICE_INFO);
-        UINT result = GetRawInputDeviceInfo(handle, RIDI_DEVICEINFO, &deviceInfo, &size);
-
-        if (result == static_cast<UINT>(-1)) {
-            //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
-            return 0;
-        }
-        //DCHECK_EQ(size, result);
-
-        m_Devices.emplace(handle, RawInputDevice::CreateRawInputDevice(deviceInfo.dwType, handle));
+        m_Devices.emplace(handle, RawInputDevice::CreateRawInputDevice(handle));
     }
     else
     {
