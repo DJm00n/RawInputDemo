@@ -39,16 +39,16 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     // We can now use the name to query the OS for a file handle that is used to
     // read the product string from the device. If the OS does not return a valid
     // handle this device is invalid.
-    auto hid_handle = OpenHidHandle();
-    if (!IsValidHandle(hid_handle.get()))
+    auto device_handle = OpenHidDevice();
+    if (!IsValidHandle(device_handle.get()))
         return false;
 
     // Fetch the human-friendly |m_ManufacturerString|, if available.
-    if (!QueryManufacturerString(hid_handle))
+    if (!QueryManufacturerString(device_handle))
         m_ManufacturerString = "Unknown Vendor";
 
     // Fetch the human-friendly |m_ProductString|, if available.
-    if (!QueryProductString(hid_handle))
+    if (!QueryProductString(device_handle))
         m_ProductString = "Unknown HID Device";
 
     // Fetch information about the buttons and axes on this device. This sets
@@ -64,10 +64,10 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     return true;
 }
 
-ScopedHandle RawInputDeviceHid::OpenHidHandle() const
+ScopedHandle RawInputDeviceHid::OpenHidDevice() const
 {
     return ScopedHandle(::CreateFile(
-        fromUtf8(m_Name).c_str(), GENERIC_READ | GENERIC_WRITE,
+        utf8::widen(m_Name).c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
         OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
@@ -81,37 +81,37 @@ bool RawInputDeviceHid::QueryHidInfo()
 
     //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEHID));
 
-    std::memcpy(&m_HidInfo, &device_info.keyboard, sizeof(m_HidInfo));
+    std::memcpy(&m_HidInfo, &device_info.hid, sizeof(m_HidInfo));
 
     return true;
 }
 
-bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& hid_handle)
+bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& device_handle)
 {
-    //DCHECK(hid_handle.IsValid());
+    //DCHECK(device_handle.IsValid());
 
     std::wstring manufacturerString;
     manufacturerString.resize(RawInputDevice::kIdLengthCap);
 
-    if (!HidD_GetManufacturerString(hid_handle.get(), &manufacturerString.front(), RawInputDevice::kIdLengthCap))
+    if (!HidD_GetManufacturerString(device_handle.get(), &manufacturerString.front(), RawInputDevice::kIdLengthCap))
         return false;
 
-    m_ManufacturerString.assign(toUtf8(manufacturerString));
+    m_ManufacturerString = utf8::narrow(manufacturerString);
 
     return true;
 }
 
-bool RawInputDeviceHid::QueryProductString(ScopedHandle & hid_handle)
+bool RawInputDeviceHid::QueryProductString(ScopedHandle & device_handle)
 {
-    //DCHECK(hid_handle.IsValid());
+    //DCHECK(device_handle.IsValid());
 
     std::wstring productString;
     productString.resize(RawInputDevice::kIdLengthCap);
 
-    if (!HidD_GetProductString(hid_handle.get(), &productString.front(), RawInputDevice::kIdLengthCap))
+    if (!HidD_GetProductString(device_handle.get(), &productString.front(), RawInputDevice::kIdLengthCap))
         return false;
 
-    m_ProductString.assign(toUtf8(productString));
+    m_ProductString = utf8::narrow(productString);
 
     return true;
 }

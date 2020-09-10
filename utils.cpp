@@ -2,73 +2,100 @@
 
 #include "utils.h"
 
-std::string toUtf8(std::wstring wstring)
+#include <array>
+
+using namespace std;
+
+// code from https://www.codeproject.com/Articles/5252037/Doing-UTF-8-in-Windows
+namespace utf8
 {
-    if (wstring.size() == 0)
+
+    /*!
+      Conversion from wide character to UTF-8
+      \param  s   input string
+      \param  nch number of character to convert or 0 if string is null-terminated
+      \return UTF-8 character string
+    */
+    std::string narrow(const wchar_t* s, size_t nch)
     {
-        return std::string();
+        int nsz;
+        if (!s || !(nsz = WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0, 0, 0)))
+            return string();
+
+        string out(nsz, 0);
+        WideCharToMultiByte(CP_UTF8, 0, s, -1, &out[0], nsz, 0, 0);
+        if (!nch)
+            out.resize(nsz - 1); //output is null-terminated
+        return out;
     }
 
-    int requiredLength = ::WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        reinterpret_cast<const wchar_t*>(wstring.data()),
-        static_cast<int>(wstring.size()),
-        nullptr,
-        0,
-        nullptr,
-        nullptr);
-
-    if (requiredLength <= 0)
+    /*!
+      Conversion from wide character to UTF-8
+      \param  s input string
+      \return UTF-8 character string
+    */
+    std::string narrow(const std::wstring& s)
     {
-        return std::string();
+        int nsz = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, 0, 0, 0, 0);
+        if (!nsz)
+            return string();
+
+        string out(nsz, 0);
+        WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, &out[0], nsz, 0, 0);
+        out.resize(nsz - 1); //output is null-terminated
+        return out;
     }
 
-    std::vector<char> utf8Chars(requiredLength);
-
-    if (::WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        reinterpret_cast<const wchar_t*>(wstring.data()),
-        static_cast<int>(wstring.size()),
-        utf8Chars.data(),
-        static_cast<int>(utf8Chars.size()),
-        nullptr,
-        nullptr) == 0)
+    /*!
+      Conversion from UTF-8 to wide character
+      \param  s input string
+      \param nch number of characters to convert or 0 if string is null-terminated
+      \return wide character string
+    */
+    std::wstring widen(const char* s, size_t nch)
     {
-        return std::string();
+        int wsz;
+        if (!s || !(wsz = MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0)))
+            return wstring();
+
+        wstring out(wsz, 0);
+        MultiByteToWideChar(CP_UTF8, 0, s, -1, &out[0], wsz);
+        if (!nch)
+            out.resize(wsz - 1); //output is null-terminated
+        return out;
     }
 
-    return std::string(begin(utf8Chars), end(utf8Chars));
+    /*!
+      Conversion from UTF-8 to wide character
+      \param  s input string
+      \return wide character string
+    */
+    std::wstring widen(const std::string& s)
+    {
+        int wsz = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, 0, 0);
+        if (!wsz)
+            return wstring();
+
+        wstring out(wsz, 0);
+        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], wsz);
+        out.resize(wsz - 1); //output is null-terminated
+        return out;
+    }
 }
 
-std::wstring fromUtf8(std::string string)
+#ifdef _DEBUG
+VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...)
 {
-    if (string.size() == 0)
-    {
-        return std::wstring();
-    }
+    std::array<char, 1024> formatted;
 
-    int requiredLength = MultiByteToWideChar(CP_UTF8, 0, string.data(), static_cast<int>(string.size()), nullptr, 0);
+    va_list args;
+    va_start(args, format);
 
-    if (requiredLength <= 0)
-    {
-        return std::wstring();
-    }
+    vsnprintf(formatted.data(), formatted.size(), format, args);
 
-    std::vector<wchar_t> utf16Chars(requiredLength);
+    va_end(args);
 
-    if (MultiByteToWideChar(
-        CP_UTF8,
-        0,
-        string.data(),
-        static_cast<int>(string.size()),
-        utf16Chars.data(),
-        static_cast<int>(utf16Chars.size())) == 0)
-    {
-        return std::wstring();
-    }
-
-    return std::wstring(reinterpret_cast<wchar_t*>(utf16Chars.data()), utf16Chars.size());
+    ::OutputDebugStringA(fmt::format("[{}:{}] {}\n", function_name, line_number, formatted.data()).c_str());
 }
+#endif
 

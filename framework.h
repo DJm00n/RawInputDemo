@@ -22,13 +22,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#ifdef _DEBUG
-#define DBGPRINT(kwszDebugFormatString, ...) _DBGPRINT(__FUNCTIONW__, __LINE__, kwszDebugFormatString, __VA_ARGS__)
-
-VOID _DBGPRINT(LPCWSTR kwszFunction, INT iLineNumber, LPCWSTR kwszDebugFormatString, ...);
-#else
-#define DBGPRINT( kwszDebugFormatString, ... ) ;;
-#endif
+#include <fmt/format.h>
 
 #include "utils.h"
 

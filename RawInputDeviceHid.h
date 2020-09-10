@@ -26,11 +26,11 @@ protected:
     bool QueryDeviceInfo();
     // "Returns an open handle for the HID device, or an invalid handle if the
     // device could not be opened."
-    ScopedHandle OpenHidHandle() const;
+    ScopedHandle OpenHidDevice() const;
 
     bool QueryHidInfo();
-    bool QueryManufacturerString(ScopedHandle& hid_handle);
-    bool QueryProductString(ScopedHandle& hid_handle);
+    bool QueryManufacturerString(ScopedHandle& device_handle);
+    bool QueryProductString(ScopedHandle& device_handle);
     bool QueryDeviceCapabilities();
     void QueryButtonCapabilities(uint16_t button_count);
     void QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool>* button_indices_used);

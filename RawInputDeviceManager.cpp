@@ -20,7 +20,7 @@ void RawInputDeviceManager::Register(HWND hWndTarget)
 
     if (!RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE)))
     {
-        DBGPRINT(L"Cannot register raw input devices.");
+        DBGPRINT("Cannot register raw input devices.");
     }
 }
 
@@ -35,7 +35,7 @@ void RawInputDeviceManager::Unregister()
 
     if (!RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE)))
     {
-        DBGPRINT(L"Cannot unregister raw input devices.");
+        DBGPRINT("Cannot unregister raw input devices.");
     }
 }
 

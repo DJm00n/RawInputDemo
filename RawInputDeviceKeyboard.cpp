@@ -29,7 +29,7 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     if (!QueryKeyboardInfo())
         return false;
 
-    auto keyboard_handle = OpenKeyboardHandle();
+    auto keyboard_handle = OpenKeyboardDevice();
     if (!IsValidHandle(keyboard_handle.get()))
         return false;
 
@@ -49,11 +49,11 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     return true;
 }
 
-ScopedHandle RawInputDeviceKeyboard::OpenKeyboardHandle() const
+ScopedHandle RawInputDeviceKeyboard::OpenKeyboardDevice() const
 {
-    // keyboard is write-only device
+    // Keyboard is write-only device
     return ScopedHandle(::CreateFile(
-        fromUtf8(m_Name).c_str(), GENERIC_WRITE,
+        utf8::widen(m_Name).c_str(), GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
         OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
@@ -74,24 +74,24 @@ bool RawInputDeviceKeyboard::QueryKeyboardInfo()
 
 bool RawInputDeviceKeyboard::QueryProductString()
 {
-    //DCHECK(hid_handle.IsValid());
+    //DCHECK(device_handle.IsValid());
 
     if (m_KeyboardInfo.dwNumberOfKeysTotal == 0)
         return false;
 
-    m_ProductString = std::to_string(m_KeyboardInfo.dwNumberOfKeysTotal) + "-key keyboard";
+    m_ProductString = fmt::format("Keyboard ({}-key)", m_KeyboardInfo.dwNumberOfKeysTotal);
 
     return true;
 }
 
-bool RawInputDeviceKeyboard::KeyboardSetLeds(ScopedHandle& hid_handle)
+bool RawInputDeviceKeyboard::KeyboardSetLeds(ScopedHandle& keyboard_handle)
 {
     KEYBOARD_INDICATOR_PARAMETERS indicator_parameters;
     indicator_parameters.UnitId = 0;
     indicator_parameters.LedFlags = KEYBOARD_SCROLL_LOCK_ON | KEYBOARD_NUM_LOCK_ON | KEYBOARD_CAPS_LOCK_ON;
 
     DWORD len;
-    if (!DeviceIoControl(hid_handle.get(), IOCTL_KEYBOARD_SET_INDICATORS, &indicator_parameters, sizeof(indicator_parameters), nullptr, 0, &len, nullptr))
+    if (!DeviceIoControl(keyboard_handle.get(), IOCTL_KEYBOARD_SET_INDICATORS, &indicator_parameters, sizeof(indicator_parameters), nullptr, 0, &len, nullptr))
     {
         auto error = GetLastError();
         return false;

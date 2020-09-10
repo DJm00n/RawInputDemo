@@ -13,14 +13,14 @@ protected:
 
     bool QueryDeviceInfo();
 
-    // "Returns an open handle for the HID device, or an invalid handle if the
+    // "Returns an open handle for the Keyboard device, or an invalid handle if the
     // device could not be opened."
-    ScopedHandle OpenKeyboardHandle() const;
+    ScopedHandle OpenKeyboardDevice() const;
 
     bool QueryKeyboardInfo();
     bool QueryProductString();
 
-    bool KeyboardSetLeds(ScopedHandle& hid_handle);
+    bool KeyboardSetLeds(ScopedHandle& device_handle);
 
 private:
     RID_DEVICE_INFO_KEYBOARD m_KeyboardInfo = {};

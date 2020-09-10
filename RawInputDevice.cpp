@@ -24,8 +24,8 @@ bool RawInputDevice::QueryRawDeviceName()
     }
     //DCHECK_EQ(0u, result);
 
-    std::unique_ptr<wchar_t[]> buffer(new wchar_t[size]);
-    result = ::GetRawInputDeviceInfo(m_Handle, RIDI_DEVICENAME, buffer.get(), &size);
+    std::wstring buffer(size, 0);
+    result = ::GetRawInputDeviceInfo(m_Handle, RIDI_DEVICENAME, &buffer[0], &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -33,7 +33,7 @@ bool RawInputDevice::QueryRawDeviceName()
     }
     //DCHECK_EQ(size, result);
 
-    m_Name = toUtf8(buffer.get());
+    m_Name = utf8::narrow(buffer);
 
     return true;
 }
@@ -54,7 +54,7 @@ std::unique_ptr<RawInputDevice> RawInputDevice::CreateRawInputDevice(HANDLE hand
         return std::make_unique<RawInputDeviceHid>(handle);
     }
 
-    DBGPRINT(L"Unknown device type %d.", info.dwType);
+    DBGPRINT("Unknown device type %d.", info.dwType);
 
     return nullptr;
 }
