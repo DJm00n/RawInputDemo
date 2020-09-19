@@ -22,7 +22,7 @@ bool RawInputDevice::QueryRawDeviceName()
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
         return false;
     }
-    //DCHECK_EQ(0u, result);
+    DCHECK_EQ(0u, result);
 
     std::wstring buffer(size, 0);
     result = ::GetRawInputDeviceInfo(m_Handle, RIDI_DEVICENAME, &buffer[0], &size);
@@ -31,7 +31,7 @@ bool RawInputDevice::QueryRawDeviceName()
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
         return false;
     }
-    //DCHECK_EQ(size, result);
+    DCHECK_EQ(size, result);
 
     m_Name = utf8::narrow(buffer);
 
@@ -69,7 +69,7 @@ bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceIn
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
         return false;
     }
-    //DCHECK_EQ(size, result);
+    DCHECK_EQ(size, result);
 
     return true;
 }

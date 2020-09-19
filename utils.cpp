@@ -18,8 +18,11 @@ namespace utf8
     */
     std::string narrow(const wchar_t* s, size_t nch)
     {
-        int nsz;
-        if (!s || !(nsz = WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0, 0, 0)))
+        if (!s)
+            return string();
+
+        int nsz = WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0, 0, 0);
+        if (!nsz)
             return string();
 
         string out(nsz, 0);
@@ -54,8 +57,11 @@ namespace utf8
     */
     std::wstring widen(const char* s, size_t nch)
     {
-        int wsz;
-        if (!s || !(wsz = MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0)))
+        if (!s)
+            return wstring();
+
+        int wsz = MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0);
+        if (!wsz)
             return wstring();
 
         wstring out(wsz, 0);

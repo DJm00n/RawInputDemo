@@ -6,6 +6,8 @@
 #include "RawInputDemo.h"
 #include "RawInputDeviceManager.h"
 
+#include <windowsx.h>
+
 RawInputDeviceManager rawDeviceManager;
 
 #define MAX_LOADSTRING 100
@@ -87,16 +89,6 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
-//
-//   FUNCTION: InitInstance(HINSTANCE, int)
-//
-//   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
-//
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Store instance handle in our global variable
@@ -115,70 +107,75 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
+BOOL WndProc_OnCreate(HWND hWnd, LPCREATESTRUCT /*lpCreateStruct*/)
+{
+    rawDeviceManager.Register(hWnd);
+    rawDeviceManager.EnumerateDevices();
+
+    return TRUE;
+}
+
+void WndProc_OnCommand(HWND hWnd, int id, HWND hWndCtl, UINT codeNotify)
+{
+    // Parse the menu selections:
+    switch (id)
+    {
+    case IDM_ABOUT:
+        DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+        break;
+    case IDM_EXIT:
+        DestroyWindow(hWnd);
+        break;
+    }
+
+    return FORWARD_WM_COMMAND(hWnd, id, hWndCtl, codeNotify, DefWindowProc);
+}
+
+void WndProc_OnDestroy(HWND /*hWnd*/)
+{
+    rawDeviceManager.Unregister();
+    PostQuitMessage(0);
+}
+
+/* BOOL Cls_OnInput(HWND hWnd, UINT code, HRAWINPUT handle) */
+#define HANDLE_WM_INPUT(hWnd, wParam, lParam, fn) \
+    ((fn)((hWnd), GET_RAWINPUT_CODE_WPARAM(wParam), (HRAWINPUT)lParam) ? 0L : (LRESULT)-1L)
+#define FORWARD_WM_INPUT(hWnd, code, hInput, fn) \
+    (BOOL)(DWORD)(fn)((hWnd), WM_INPUT, (WPARAM)code, (LPARAM)hInput)
+
+BOOL WndProc_OnInput(HWND hWnd, UINT code, HRAWINPUT hInput)
+{
+    rawDeviceManager.OnInput(hWnd, code, hInput);
+
+    if(code == RIM_INPUT)
+        return FORWARD_WM_INPUT(hWnd, code, hInput, DefWindowProc);
+
+    return TRUE;
+}
+
+/* BOOL Cls_OnInputDeviceChange(HWND hWnd, UINT code, HANDLE handle) */
+#define HANDLE_WM_INPUT_DEVICE_CHANGE(hWnd, wParam, lParam, fn) \
+    ((fn)((hWnd), (UINT)wParam, (HANDLE)lParam) ? 0L : (LRESULT)-1L)
+
+BOOL WndProc_OnInputDeviceChange(HWND hWnd, UINT code, HANDLE handle)
+{
+    rawDeviceManager.OnInputDeviceChange(hWnd, code, handle);
+
+    return TRUE;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_CREATE:
-        {
-            rawDeviceManager.Register(hWnd);
-            rawDeviceManager.EnumerateDevices();
-        }
-        break;
-    case WM_COMMAND:
-        {
-            int wmId = LOWORD(wParam);
-            // Parse the menu selections:
-            switch (wmId)
-            {
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
-        }
-        break;
-    case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            // TODO: Add any drawing code that uses hdc here...
-            EndPaint(hWnd, &ps);
-        }
-        break;
-    case WM_DESTROY:
-        {
-            rawDeviceManager.Unregister();
-            PostQuitMessage(0);
-        }
-        break;
+        HANDLE_MSG(hWnd, WM_CREATE, WndProc_OnCreate);
+        HANDLE_MSG(hWnd, WM_COMMAND, WndProc_OnCommand);
+        HANDLE_MSG(hWnd, WM_DESTROY, WndProc_OnDestroy);
+        HANDLE_MSG(hWnd, WM_INPUT, WndProc_OnInput);
+        HANDLE_MSG(hWnd, WM_INPUT_DEVICE_CHANGE, WndProc_OnInputDeviceChange);
+    default:
+        return(DefWindowProc(hWnd, message, wParam, lParam));
     }
-
-    LRESULT result;
-    if (rawDeviceManager.OnMessage(hWnd, message, wParam, lParam, &result))
-    {
-        return result;
-    }
-    else
-    {
-        return DefWindowProc(hWnd, message, wParam, lParam);
-    }
-
-    return 0;
 }
 
 // Message handler for about box.

@@ -23,6 +23,7 @@
 #include <unordered_set>
 
 #include <fmt/format.h>
+#include <iostream>
 
 #include "utils.h"
 

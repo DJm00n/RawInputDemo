@@ -20,9 +20,9 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 
 RawInputDeviceHid::~RawInputDeviceHid() = default;
 
-void RawInputDeviceHid::OnInput(const RAWINPUT* input)
+void RawInputDeviceHid::OnInput(const RAWINPUT* /*input*/)
 {
-
+    //TODO
 }
 
 bool RawInputDeviceHid::QueryDeviceInfo()
@@ -79,7 +79,7 @@ bool RawInputDeviceHid::QueryHidInfo()
     if (!QueryRawDeviceInfo(m_Handle, &device_info))
         return false;
 
-    //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEHID));
+    DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEHID));
 
     std::memcpy(&m_HidInfo, &device_info.hid, sizeof(m_HidInfo));
 
@@ -88,7 +88,7 @@ bool RawInputDeviceHid::QueryHidInfo()
 
 bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& device_handle)
 {
-    //DCHECK(device_handle.IsValid());
+    DCHECK(IsValidHandle(device_handle.get()));
 
     std::wstring manufacturerString;
     manufacturerString.resize(RawInputDevice::kIdLengthCap);
@@ -103,7 +103,7 @@ bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& device_handle)
 
 bool RawInputDeviceHid::QueryProductString(ScopedHandle & device_handle)
 {
-    //DCHECK(device_handle.IsValid());
+    DCHECK(IsValidHandle(device_handle.get()));
 
     std::wstring productString;
     productString.resize(RawInputDevice::kIdLengthCap);
@@ -126,7 +126,7 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
         return false;
     }
-    //DCHECK_EQ(0u, result);
+    DCHECK_EQ(0u, result);
 
     m_PPDBuffer.reset(new uint8_t[size]);
     m_PreparsedData = reinterpret_cast<PHIDP_PREPARSED_DATA>(m_PPDBuffer.get());
@@ -136,11 +136,11 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
         return false;
     }
-    //DCHECK_EQ(size, result);
+    DCHECK_EQ(size, result);
 
     HIDP_CAPS caps;
     NTSTATUS status = HidP_GetCaps(m_PreparsedData, &caps);
-    //DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
+    DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
 
     QueryButtonCapabilities(caps.NumberInputButtonCaps);
     QueryAxisCapabilities(caps.NumberInputValueCaps);
@@ -155,7 +155,7 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t button_count)
         std::unique_ptr<HIDP_BUTTON_CAPS[]> button_caps(new HIDP_BUTTON_CAPS[button_count]);
 
         NTSTATUS status = HidP_GetButtonCaps(HidP_Input, button_caps.get(), &button_count, m_PreparsedData);
-        //DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
+        DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
 
         // Keep track of which button indices are in use.
         std::vector<bool> button_indices_used(kButtonsLengthCap, false);
@@ -167,8 +167,8 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t button_count)
 
 void RawInputDeviceHid::QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool> * button_indices_used)
 {
-    //DCHECK(button_caps);
-    //DCHECK(button_indices_used);
+    DCHECK(button_caps);
+    DCHECK(button_indices_used);
 
     // Collect all inputs from the Button usage page and assign button indices
     // based on the usage value.
@@ -195,9 +195,6 @@ void RawInputDeviceHid::QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_ca
 
 void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
 {
-    //DCHECK(hid_functions_);
-    //DCHECK(hid_functions_->IsValid());
-
     std::unique_ptr<HIDP_VALUE_CAPS[]> axes(new HIDP_VALUE_CAPS[axis_count]);
     HidP_GetValueCaps(HidP_Input, axes.get(), &axis_count, m_PreparsedData);
 

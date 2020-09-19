@@ -15,9 +15,9 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard() = default;
 
-void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
+void RawInputDeviceKeyboard::OnInput(const RAWINPUT* /*input*/)
 {
-
+    //TODO
 }
 
 bool RawInputDeviceKeyboard::QueryDeviceInfo()
@@ -65,7 +65,7 @@ bool RawInputDeviceKeyboard::QueryKeyboardInfo()
     if (!QueryRawDeviceInfo(m_Handle, &device_info))
         return false;
 
-    //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
+    DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
 
     std::memcpy(&m_KeyboardInfo, &device_info.keyboard, sizeof(m_KeyboardInfo));
 
@@ -74,8 +74,6 @@ bool RawInputDeviceKeyboard::QueryKeyboardInfo()
 
 bool RawInputDeviceKeyboard::QueryProductString()
 {
-    //DCHECK(device_handle.IsValid());
-
     if (m_KeyboardInfo.dwNumberOfKeysTotal == 0)
         return false;
 
@@ -86,6 +84,8 @@ bool RawInputDeviceKeyboard::QueryProductString()
 
 bool RawInputDeviceKeyboard::KeyboardSetLeds(ScopedHandle& keyboard_handle)
 {
+    DCHECK(IsValidHandle(keyboard_handle.get()));
+
     KEYBOARD_INDICATOR_PARAMETERS indicator_parameters;
     indicator_parameters.UnitId = 0;
     indicator_parameters.LedFlags = KEYBOARD_SCROLL_LOCK_ON | KEYBOARD_NUM_LOCK_ON | KEYBOARD_CAPS_LOCK_ON;
@@ -93,7 +93,7 @@ bool RawInputDeviceKeyboard::KeyboardSetLeds(ScopedHandle& keyboard_handle)
     DWORD len;
     if (!DeviceIoControl(keyboard_handle.get(), IOCTL_KEYBOARD_SET_INDICATORS, &indicator_parameters, sizeof(indicator_parameters), nullptr, 0, &len, nullptr))
     {
-        auto error = GetLastError();
+        //auto error = GetLastError();
         return false;
     }
 

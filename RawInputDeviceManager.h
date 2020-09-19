@@ -12,11 +12,9 @@ public:
 
     void EnumerateDevices();
 
-    bool OnMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT* lResult);
+    void OnInput(HWND hWndInput, UINT rimCode, HRAWINPUT hRawInput);
+    void OnInputDeviceChange(HWND hWndInput, UINT gidcCode, HANDLE hDevice);
 
 private:
-    LRESULT OnInput(HRAWINPUT hRawInput);
-    LRESULT OnInputDeviceChange(bool arrival, HANDLE handle);
-
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };

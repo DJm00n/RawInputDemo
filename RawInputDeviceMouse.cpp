@@ -30,14 +30,14 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
         int absoluteX = static_cast<int>((pRawMouse->lLastX / static_cast<float>(USHRT_MAX)) * width);
         int absoluteY = static_cast<int>((pRawMouse->lLastY / static_cast<float>(USHRT_MAX)) * height);
 
-        //DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
+        DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
     }
     else if (pRawMouse->lLastX != 0 && pRawMouse->lLastY != 0)
     {
         int relativeX = pRawMouse->lLastX;
         int relativeY = pRawMouse->lLastY;
 
-        //DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
+        DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
     }
 
     if ((pRawMouse->usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||

@@ -47,7 +47,7 @@ void RawInputDeviceManager::EnumerateDevices()
         //PLOG(ERROR) << "GetRawInputDeviceList() failed";
         return;
     }
-    //DCHECK_EQ(0u, result);
+    DCHECK_EQ(0u, result);
 
     std::unique_ptr<RAWINPUTDEVICELIST[]> device_list(new RAWINPUTDEVICELIST[count]);
     result = ::GetRawInputDeviceList(device_list.get(), &count, sizeof(RAWINPUTDEVICELIST));
@@ -55,13 +55,13 @@ void RawInputDeviceManager::EnumerateDevices()
         //PLOG(ERROR) << "GetRawInputDeviceList() failed";
         return;
     }
-    //DCHECK_EQ(count, result);
+    DCHECK_EQ(count, result);
 
-    std::unordered_set<HANDLE> enumerated_device_handles;
+    std::unordered_set<HANDLE> enumerated_device_hDevices;
     for (UINT i = 0; i < count; ++i)
     {
-        HANDLE device_handle = device_list[i].hDevice;
-        auto controller_it = m_Devices.find(device_handle);
+        HANDLE device_hDevice = device_list[i].hDevice;
+        auto controller_it = m_Devices.find(device_hDevice);
 
         RawInputDevice* device;
         if (controller_it != m_Devices.end())
@@ -70,26 +70,26 @@ void RawInputDeviceManager::EnumerateDevices()
         }
         else
         {
-            auto new_device = RawInputDevice::CreateRawInputDevice(device_handle);
+            auto new_device = RawInputDevice::CreateRawInputDevice(device_hDevice);
             if (!new_device->IsValid())
             {
                 continue;
             }
 
-            auto emplace_result = m_Devices.emplace(device_handle, std::move(new_device));
+            auto emplace_result = m_Devices.emplace(device_hDevice, std::move(new_device));
             device = emplace_result.first->second.get();
 
             // TODO LOG
         }
 
-        enumerated_device_handles.insert(device_handle);
+        enumerated_device_hDevices.insert(device_hDevice);
     }
 
     // Clear out old controllers that weren't part of this enumeration pass.
     auto controller_it = m_Devices.begin();
     while (controller_it != m_Devices.end())
     {
-        if (enumerated_device_handles.find(controller_it->first) == enumerated_device_handles.end())
+        if (enumerated_device_hDevices.find(controller_it->first) == enumerated_device_hDevices.end())
         {
             controller_it = m_Devices.erase(controller_it);
         }
@@ -100,105 +100,67 @@ void RawInputDeviceManager::EnumerateDevices()
     }
 }
 
-bool RawInputDeviceManager::OnMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, LRESULT* lResult)
-{
-    switch (message)
-    {
-    case WM_INPUT:
-    {
-        UINT code = GET_RAWINPUT_CODE_WPARAM(wParam);
-
-        if (code != RIM_INPUT && code != RIM_INPUTSINK)
-            break;
-
-        HRAWINPUT dataHandle = (HRAWINPUT)lParam;
-
-        *lResult = OnInput(dataHandle);
-
-        if (*lResult == 0 && code == RIM_INPUT)
-            *lResult = DefWindowProc(hWnd, message, wParam, lParam);
-
-        return true;
-    }
-    case WM_INPUT_DEVICE_CHANGE:
-    {
-        if (wParam != GIDC_ARRIVAL && wParam != GIDC_REMOVAL)
-            break;
-
-        bool arrival = (wParam == GIDC_ARRIVAL);
-        HANDLE handle = (HANDLE)lParam;
-
-        *lResult = OnInputDeviceChange(arrival, handle);
-
-        return true;
-    }
-    }
-
-    return false;
-}
-
-LRESULT RawInputDeviceManager::OnInput(HRAWINPUT inputHandle)
+void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWINPUT hRawInput)
 {
     UINT size = 0;
-    UINT result = GetRawInputData(inputHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+    UINT result = GetRawInputData(hRawInput, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1)) {
         //PLOG(ERROR) << "GetRawInputData() failed";
-        return 0;
+        return;
     }
-    //DCHECK_EQ(0u, result);
+    DCHECK_EQ(0u, result);
 
     std::unique_ptr<uint8_t[]> buffer(new uint8_t[size]);
     RAWINPUT* input = reinterpret_cast<RAWINPUT*>(buffer.get());
 
-    result = GetRawInputData(inputHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-
+    result = GetRawInputData(hRawInput, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1)) {
         //PLOG(ERROR) << "GetRawInputData() failed";
-        return 0;
+        return;
     }
-    //DCHECK_EQ(size, result);
+    DCHECK_EQ(size, result);
 
     // Notify device about the event
     if (input->header.hDevice != nullptr)
     {
         auto it = m_Devices.find(input->header.hDevice);
-        if (it != m_Devices.end())
-            it->second->OnInput(input);
-    }
-
-    return ::DefRawInputProc(&input, 1, sizeof(RAWINPUTHEADER));
-}
-
-LRESULT RawInputDeviceManager::OnInputDeviceChange(bool arrival, HANDLE handle)
-{
-    if (handle == nullptr)
-        return 1;
-
-    auto it = m_Devices.find(handle);
-
-    if (arrival)
-    {
-        if (it != m_Devices.end())
-        {
-            //PLOG(ERROR) << "Device already exist";
-            return 0;
-        }
-
-        m_Devices.emplace(handle, RawInputDevice::CreateRawInputDevice(handle));
-    }
-    else
-    {
         if (it == m_Devices.end())
         {
             //PLOG(ERROR) << "Device not found";
-            return 0;
+            return;
+        }
+
+        it->second->OnInput(input);
+    }
+}
+
+void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCode, HANDLE hDevice)
+{
+    DCHECK(gidcCode == GIDC_ARRIVAL || gidcCode == GIDC_REMOVAL);
+    CHECK_NE(hDevice, nullptr);
+
+    if (gidcCode == GIDC_ARRIVAL)
+    {
+        if (m_Devices.find(hDevice) != m_Devices.end())
+        {
+            //PLOG(ERROR) << "Device already exist";
+            return;
+        }
+
+        m_Devices.emplace(hDevice, RawInputDevice::CreateRawInputDevice(hDevice));
+    }
+    else
+    {
+        auto it = m_Devices.find(hDevice);
+        if (it == m_Devices.end())
+        {
+            //PLOG(ERROR) << "Device not found";
+            return;
         }
 
         m_Devices.erase(it);
     }
-
-    return 0;
 }
 
