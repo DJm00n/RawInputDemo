@@ -21,8 +21,6 @@ public:
 protected:
     friend class RawInputDeviceManager;
 
-    static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle);
-
     virtual void OnInput(const RAWINPUT* input) = 0;
 
     // Fetch the device name (RIDI_DEVICENAME). Returns false on failure.

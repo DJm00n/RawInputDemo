@@ -21,5 +21,7 @@ public:
     void OnInputDeviceChange(HWND hWndInput, UINT gidcCode, HANDLE hDevice);
 
 private:
+    static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle, DWORD deviceType);
+
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };

@@ -3,10 +3,6 @@
 
 #include "RawInputDevice.h"
 
-#include "RawInputDeviceMouse.h"
-#include "RawInputDeviceKeyboard.h"
-#include "RawInputDeviceHid.h"
-
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)
 {}
@@ -37,27 +33,6 @@ bool RawInputDevice::QueryRawDeviceName()
     m_Name = utf8::narrow(buffer);
 
     return true;
-}
-
-std::unique_ptr<RawInputDevice> RawInputDevice::CreateRawInputDevice(HANDLE handle)
-{
-    RID_DEVICE_INFO info;
-    if (!QueryRawDeviceInfo(handle, &info))
-        return nullptr;
-
-    switch (info.dwType)
-    {
-    case RIM_TYPEMOUSE:
-        return std::make_unique<RawInputDeviceMouse>(handle);
-    case RIM_TYPEKEYBOARD:
-        return std::make_unique<RawInputDeviceKeyboard>(handle);
-    case RIM_TYPEHID:
-        return std::make_unique<RawInputDeviceHid>(handle);
-    }
-
-    DBGPRINT("Unknown device type %d.", info.dwType);
-
-    return nullptr;
 }
 
 bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo)

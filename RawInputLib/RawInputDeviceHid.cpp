@@ -84,6 +84,8 @@ bool RawInputDeviceHid::QueryHidInfo()
 
     std::memcpy(&m_HidInfo, &device_info.hid, sizeof(m_HidInfo));
 
+    // TODO https://github.com/Microsoft/Windows-driver-samples/tree/master/hid/hclient
+
     return true;
 }
 
@@ -129,7 +131,7 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     }
     DCHECK_EQ(0u, result);
 
-    m_PPDBuffer.reset(new uint8_t[size]);
+    m_PPDBuffer = std::make_unique<uint8_t[]>(size);
     m_PreparsedData = reinterpret_cast<PHIDP_PREPARSED_DATA>(m_PPDBuffer.get());
     result = ::GetRawInputDeviceInfo(m_Handle, RIDI_PREPARSEDDATA, m_PPDBuffer.get(), &size);
     if (result == static_cast<UINT>(-1))
@@ -153,7 +155,7 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t button_count)
 {
     if (button_count > 0)
     {
-        std::unique_ptr<HIDP_BUTTON_CAPS[]> button_caps(new HIDP_BUTTON_CAPS[button_count]);
+        auto button_caps = std::make_unique<HIDP_BUTTON_CAPS[]>(button_count);
 
         NTSTATUS status = HidP_GetButtonCaps(HidP_Input, button_caps.get(), &button_count, m_PreparsedData);
         DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
@@ -196,8 +198,11 @@ void RawInputDeviceHid::QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_ca
 
 void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
 {
-    std::unique_ptr<HIDP_VALUE_CAPS[]> axes(new HIDP_VALUE_CAPS[axis_count]);
-    HidP_GetValueCaps(HidP_Input, axes.get(), &axis_count, m_PreparsedData);
+    auto axes = std::make_unique<HIDP_VALUE_CAPS[]>(axis_count);
+
+    NTSTATUS status = HidP_GetValueCaps(HidP_Input, axes.get(), &axis_count, m_PreparsedData);
+
+    DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
 
     bool mapped_all_axes = true;
 
