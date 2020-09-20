@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "framework.h"
 
 #include "RawInputDeviceManager.h"
@@ -57,7 +58,7 @@ void RawInputDeviceManager::EnumerateDevices()
     }
     DCHECK_EQ(count, result);
 
-    std::unordered_set<HANDLE> enumerated_device_hDevices;
+    std::unordered_set<HANDLE> enumerated_device_handles;
     for (UINT i = 0; i < count; ++i)
     {
         HANDLE device_hDevice = device_list[i].hDevice;
@@ -82,14 +83,14 @@ void RawInputDeviceManager::EnumerateDevices()
             // TODO LOG
         }
 
-        enumerated_device_hDevices.insert(device_hDevice);
+        enumerated_device_handles.insert(device_hDevice);
     }
 
     // Clear out old controllers that weren't part of this enumeration pass.
     auto controller_it = m_Devices.begin();
     while (controller_it != m_Devices.end())
     {
-        if (enumerated_device_hDevices.find(controller_it->first) == enumerated_device_hDevices.end())
+        if (enumerated_device_handles.find(controller_it->first) == enumerated_device_handles.end())
         {
             controller_it = m_Devices.erase(controller_it);
         }

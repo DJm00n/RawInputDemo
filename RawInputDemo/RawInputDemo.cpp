@@ -4,7 +4,8 @@
 #include "framework.h"
 
 #include "RawInputDemo.h"
-#include "RawInputDeviceManager.h"
+
+#include <RawInputDeviceManager.h>
 
 #include <windowsx.h>
 
@@ -137,29 +138,29 @@ void WndProc_OnDestroy(HWND /*hWnd*/)
     PostQuitMessage(0);
 }
 
-/* BOOL Cls_OnInput(HWND hWnd, UINT code, HRAWINPUT handle) */
+/* BOOL Cls_OnInput(HWND hWnd, UINT rimCode, HRAWINPUT hRawInput) */
 #define HANDLE_WM_INPUT(hWnd, wParam, lParam, fn) \
     ((fn)((hWnd), GET_RAWINPUT_CODE_WPARAM(wParam), (HRAWINPUT)lParam) ? 0L : (LRESULT)-1L)
-#define FORWARD_WM_INPUT(hWnd, code, hInput, fn) \
-    (BOOL)(DWORD)(fn)((hWnd), WM_INPUT, (WPARAM)code, (LPARAM)hInput)
+#define FORWARD_WM_INPUT(hWnd, rimCode, hRawInput, fn) \
+    (BOOL)(DWORD)(fn)((hWnd), WM_INPUT, (WPARAM)rimCode, (LPARAM)hRawInput)
 
-BOOL WndProc_OnInput(HWND hWnd, UINT code, HRAWINPUT hInput)
+BOOL WndProc_OnInput(HWND hWnd, UINT rimCode, HRAWINPUT hRawInput)
 {
-    rawDeviceManager.OnInput(hWnd, code, hInput);
+    rawDeviceManager.OnInput(hWnd, rimCode, hRawInput);
 
-    if(code == RIM_INPUT)
-        return FORWARD_WM_INPUT(hWnd, code, hInput, DefWindowProc);
+    if(rimCode == RIM_INPUT)
+        return FORWARD_WM_INPUT(hWnd, rimCode, hRawInput, DefWindowProc);
 
     return TRUE;
 }
 
-/* BOOL Cls_OnInputDeviceChange(HWND hWnd, UINT code, HANDLE handle) */
+/* BOOL Cls_OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE hDevice) */
 #define HANDLE_WM_INPUT_DEVICE_CHANGE(hWnd, wParam, lParam, fn) \
     ((fn)((hWnd), (UINT)wParam, (HANDLE)lParam) ? 0L : (LRESULT)-1L)
 
-BOOL WndProc_OnInputDeviceChange(HWND hWnd, UINT code, HANDLE handle)
+BOOL WndProc_OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE hDevice)
 {
-    rawDeviceManager.OnInputDeviceChange(hWnd, code, handle);
+    rawDeviceManager.OnInputDeviceChange(hWnd, gidcCode, hDevice);
 
     return TRUE;
 }

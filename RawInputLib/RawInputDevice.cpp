@@ -1,3 +1,4 @@
+#include "pch.h"
 #include "framework.h"
 
 #include "RawInputDevice.h"

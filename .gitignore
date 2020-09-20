@@ -36,3 +36,6 @@
 .vs/
 x64/
 packages/
+Release/
+Debug/
+x64/

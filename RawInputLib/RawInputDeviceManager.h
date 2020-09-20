@@ -2,10 +2,15 @@
 
 #include "RawInputDevice.h"
 
+#include <unordered_map>
+
 class RawInputDeviceManager
 {
 public:
     RawInputDeviceManager();
+
+    RawInputDeviceManager(RawInputDeviceManager&) = delete;
+    void operator=(RawInputDeviceManager) = delete;
 
     void Register(HWND hWndTarget);
     void Unregister();

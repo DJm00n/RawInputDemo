@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 class RawInputDevice
 {
 public:
@@ -8,15 +11,20 @@ public:
     RawInputDevice(HANDLE handle);
     virtual ~RawInputDevice() = 0;
 
-    static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle);
-
-    virtual void OnInput(const RAWINPUT* input) = 0;
+    RawInputDevice(RawInputDevice&) = delete;
+    void operator=(RawInputDevice) = delete;
 
     bool IsValid() { return m_IsValid; }
 
     std::string GetDeviceName() const { return m_Name; }
 
 protected:
+    friend class RawInputDeviceManager;
+
+    static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle);
+
+    virtual void OnInput(const RAWINPUT* input) = 0;
+
     // Fetch the device name (RIDI_DEVICENAME). Returns false on failure.
     bool QueryRawDeviceName();
 
