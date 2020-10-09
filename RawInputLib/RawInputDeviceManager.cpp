@@ -79,7 +79,7 @@ void RawInputDeviceManager::EnumerateDevices()
         {
 
             auto new_device = CreateRawInputDevice(device_handle, device_type);
-            if (!new_device->IsValid())
+            if (!new_device || !new_device->IsValid())
             {
                 continue;
             }
@@ -132,7 +132,7 @@ void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWIN
     DCHECK_EQ(size, result);
 
     // Notify device about the event
-    if (input->header.hDevice != nullptr)
+    if (IsValidHandle(input->header.hDevice))
     {
         auto it = m_Devices.find(input->header.hDevice);
         if (it == m_Devices.end())
@@ -165,7 +165,15 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCod
             return;
         }
 
-        m_Devices.emplace(hDevice, CreateRawInputDevice(hDevice, info.dwType));
+        auto new_device = CreateRawInputDevice(hDevice, info.dwType);
+
+        if (!new_device || !new_device->IsValid())
+        {
+            DBGPRINT("Error while creating device of type %d.", info.dwType);
+            return;
+        }
+
+        m_Devices.emplace(hDevice, std::move(new_device));
     }
     else
     {
@@ -184,12 +192,12 @@ std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(HAND
 {
     switch (deviceType)
     {
-    case RIM_TYPEMOUSE:
-        return std::make_unique<RawInputDeviceMouse>(handle);
+    //case RIM_TYPEMOUSE:
+    //    return std::make_unique<RawInputDeviceMouse>(handle);
     case RIM_TYPEKEYBOARD:
         return std::make_unique<RawInputDeviceKeyboard>(handle);
-    case RIM_TYPEHID:
-        return std::make_unique<RawInputDeviceHid>(handle);
+    //case RIM_TYPEHID:
+    //    return std::make_unique<RawInputDeviceHid>(handle);
     }
 
     DBGPRINT("Unknown device type %d.", deviceType);

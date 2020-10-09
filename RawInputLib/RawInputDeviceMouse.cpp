@@ -19,38 +19,38 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
         return;
     }
 
-    const RAWMOUSE* pRawMouse = &input->data.mouse;
+    const RAWMOUSE& rawMouse = input->data.mouse;
 
-    if ((pRawMouse->usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE)
+    if ((rawMouse.usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE)
     {
-        bool isVirtualDesktop = (pRawMouse->usFlags & MOUSE_VIRTUAL_DESKTOP) == MOUSE_VIRTUAL_DESKTOP;
+        bool isVirtualDesktop = (rawMouse.usFlags & MOUSE_VIRTUAL_DESKTOP) == MOUSE_VIRTUAL_DESKTOP;
 
         int width = GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
         int height = GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
         
-        int absoluteX = static_cast<int>((pRawMouse->lLastX / static_cast<float>(USHRT_MAX)) * width);
-        int absoluteY = static_cast<int>((pRawMouse->lLastY / static_cast<float>(USHRT_MAX)) * height);
+        int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
+        int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
 
         DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
     }
-    else if (pRawMouse->lLastX != 0 && pRawMouse->lLastY != 0)
+    else if (rawMouse.lLastX != 0 && rawMouse.lLastY != 0)
     {
-        int relativeX = pRawMouse->lLastX;
-        int relativeY = pRawMouse->lLastY;
+        int relativeX = rawMouse.lLastX;
+        int relativeY = rawMouse.lLastY;
 
         DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
     }
 
-    if ((pRawMouse->usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||
-        (pRawMouse->usButtonFlags & RI_MOUSE_HWHEEL) == RI_MOUSE_HWHEEL)
+    if ((rawMouse.usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||
+        (rawMouse.usButtonFlags & RI_MOUSE_HWHEEL) == RI_MOUSE_HWHEEL)
     {
         static const unsigned long defaultScrollLinesPerWheelDelta = 3;
         static const unsigned long defaultScrollCharsPerWheelDelta = 1;
 
-        bool isHorizontalScroll = (pRawMouse->usButtonFlags & RI_MOUSE_HWHEEL) == RI_MOUSE_HWHEEL;
+        bool isHorizontalScroll = (rawMouse.usButtonFlags & RI_MOUSE_HWHEEL) == RI_MOUSE_HWHEEL;
         bool isScrollByPage = false;
 
-        float wheelDelta = (float)(short)pRawMouse->usButtonData;
+        float wheelDelta = (float)(short)rawMouse.usButtonData;
         float numTicks = wheelDelta / WHEEL_DELTA;
         float scrollDelta = numTicks;
 
@@ -73,7 +73,7 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
         DBGPRINT("Wheel Scroll wheelDelta=%f, numTicks=%f, scrollDelta=%f, isHorizontalScroll=%d, isScrollByPage=%d\n", wheelDelta, numTicks, scrollDelta, isHorizontalScroll, isScrollByPage);
     }
 
-    if ((pRawMouse->usButtonFlags & RI_MOUSE_BUTTON_1_DOWN) != 0)
+    if ((rawMouse.usButtonFlags & RI_MOUSE_BUTTON_1_DOWN) != 0)
     {
 
     }

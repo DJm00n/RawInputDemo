@@ -25,4 +25,5 @@ protected:
 private:
     RID_DEVICE_INFO_KEYBOARD m_KeyboardInfo = {};
     std::string m_ProductString;
+    std::array<uint8_t, 256> m_KeyState;
 };

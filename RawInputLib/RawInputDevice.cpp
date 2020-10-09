@@ -13,7 +13,7 @@ bool RawInputDevice::QueryRawDeviceName()
 {
     UINT size = 0;
 
-    UINT result = ::GetRawInputDeviceInfo(m_Handle, RIDI_DEVICENAME, nullptr, &size);
+    UINT result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, nullptr, &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -22,7 +22,7 @@ bool RawInputDevice::QueryRawDeviceName()
     DCHECK_EQ(0u, result);
 
     std::wstring buffer(size, 0);
-    result = ::GetRawInputDeviceInfo(m_Handle, RIDI_DEVICENAME, &buffer[0], &size);
+    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, &buffer[0], &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -38,7 +38,7 @@ bool RawInputDevice::QueryRawDeviceName()
 bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo)
 {
     UINT size = sizeof(RID_DEVICE_INFO);
-    UINT result = GetRawInputDeviceInfo(handle, RIDI_DEVICEINFO, deviceInfo, &size);
+    UINT result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICEINFO, deviceInfo, &size);
 
     if (result == static_cast<UINT>(-1))
     {
