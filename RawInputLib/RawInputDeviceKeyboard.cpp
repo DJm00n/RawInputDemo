@@ -30,7 +30,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     const bool keyExtended = (rawKeyboard.Flags & RI_KEY_E0) == RI_KEY_E0;
 
     // update pressed state
-    m_KeyState[rawKeyboard.VKey] = keyPressed;
+    m_KeyState[rawKeyboard.VKey] = keyPressed ? 0x80 : 0x00;
 
     auto mapLeftRightKeys = [](uint8_t vk, uint8_t scanCode, bool e0) -> uint8_t
     {
@@ -51,7 +51,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     // update extended VK key state
     if(vk != rawKeyboard.VKey)
-        m_KeyState[vk] = keyPressed;
+        m_KeyState[vk] = keyPressed ? 0x80 : 0x00;
 
     if (!keyPressed)
         return;
