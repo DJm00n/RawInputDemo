@@ -32,22 +32,22 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     // update pressed state
     m_KeyState[rawKeyboard.VKey] = keyPressed ? 0x80 : 0x00;
 
-    auto mapLeftRightKeys = [](uint8_t vk, uint8_t scanCode, bool e0) -> uint8_t
+    auto mapLeftRightKeys = [](USHORT vk, USHORT scanCode, bool e0) -> USHORT
     {
-        switch(vk)
+        switch (vk)
         {
-    case VK_SHIFT:
-        return ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
-    case VK_CONTROL:
-        return e0 ? VK_RCONTROL : VK_LCONTROL;
-    case VK_MENU:
-        return e0 ? VK_RMENU : VK_LMENU;
-    default:
-        return vk;
+        case VK_SHIFT:
+            return ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
+        case VK_CONTROL:
+            return e0 ? VK_RCONTROL : VK_LCONTROL;
+        case VK_MENU:
+            return e0 ? VK_RMENU : VK_LMENU;
+        default:
+            return vk;
         }
     };
 
-    uint8_t vk = mapLeftRightKeys(rawKeyboard.VKey, rawKeyboard.MakeCode, keyExtended);
+    USHORT vk = mapLeftRightKeys(rawKeyboard.VKey, rawKeyboard.MakeCode, keyExtended);
 
     // update extended VK key state
     if(vk != rawKeyboard.VKey)
@@ -60,7 +60,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     std::array<wchar_t, 16> uniChars;
 
     const HKL keyboardLayout = GetKeyboardLayout(0);
-    const UINT scanCode = rawKeyboard.MakeCode & (16 << (1 & keyPressed));
+    const UINT scanCode = rawKeyboard.MakeCode & (16 << (rawKeyboard.Flags & RI_KEY_BREAK));
 
     int ret = ::ToUnicodeEx(vk,
         scanCode,
