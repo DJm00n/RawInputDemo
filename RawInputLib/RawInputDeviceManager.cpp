@@ -192,12 +192,12 @@ std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(HAND
 {
     switch (deviceType)
     {
-    //case RIM_TYPEMOUSE:
-    //    return std::make_unique<RawInputDeviceMouse>(handle);
+    case RIM_TYPEMOUSE:
+        return std::make_unique<RawInputDeviceMouse>(handle);
     case RIM_TYPEKEYBOARD:
         return std::make_unique<RawInputDeviceKeyboard>(handle);
-    //case RIM_TYPEHID:
-    //    return std::make_unique<RawInputDeviceHid>(handle);
+    case RIM_TYPEHID:
+        return std::make_unique<RawInputDeviceHid>(handle);
     }
 
     DBGPRINT("Unknown device type %d.", deviceType);

@@ -52,8 +52,9 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     // update extended VK key state
     if(vk != rawKeyboard.VKey)
         m_KeyState[vk] = keyPressed ? 0x80 : 0x00;
-
-    if (!keyPressed)
+    
+    // not pressed or repeat press
+    if (!keyPressed || m_KeyState[rawKeyboard.VKey])
         return;
 
     // 16 wchar buffer as in xxxTranslateMessage in WinXP source code

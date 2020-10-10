@@ -26,10 +26,14 @@ protected:
     // Fetch the device name (RIDI_DEVICENAME). Returns false on failure.
     bool QueryRawDeviceName();
 
+    bool QueryDeviceName();
+
     // (RIDI_DEVICEINFO). nullptr on failure.
     static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
 
     HANDLE m_Handle;
     std::string m_Name;
+    std::string m_Manufacturer;
+    std::string m_DeviceDesc;
     bool m_IsValid;
 };

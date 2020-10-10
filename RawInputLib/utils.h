@@ -11,6 +11,11 @@ namespace utf8
     std::wstring widen(const std::string& s);
 }
 
+namespace stringutils
+{
+    std::vector<std::string> split(const std::string& s, char separator);
+}
+
 inline bool IsValidHandle(void* handle)
 {
     return handle != nullptr && handle != INVALID_HANDLE_VALUE;
