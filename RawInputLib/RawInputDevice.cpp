@@ -3,7 +3,9 @@
 
 #include "RawInputDevice.h"
 
+#include <initguid.h>
 #include <Cfgmgr32.h>
+#include <Devpkey.h>
 
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)
@@ -11,6 +13,17 @@ RawInputDevice::RawInputDevice(HANDLE handle)
 {}
 
 RawInputDevice::~RawInputDevice() = default;
+
+bool RawInputDevice::QueryDeviceInfo()
+{
+    if (!QueryRawDeviceName())
+        return false;
+
+    if (!QueryDevNodeInfo())
+        return false;
+
+    return true;
+}
 
 bool RawInputDevice::QueryRawDeviceName()
 {
@@ -25,7 +38,7 @@ bool RawInputDevice::QueryRawDeviceName()
     DCHECK_EQ(0u, result);
 
     std::wstring buffer(size, 0);
-    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, &buffer[0], &size);
+    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, buffer.data(), &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -33,52 +46,67 @@ bool RawInputDevice::QueryRawDeviceName()
     }
     DCHECK_EQ(size, result);
 
-    m_Name = utf8::narrow(buffer);
+    m_DeviceInterfaceName = utf8::narrow(buffer);
 
-    return QueryDeviceName();
+    return true;
 }
 
-bool RawInputDevice::QueryDeviceName()
+bool RawInputDevice::QueryDevNodeInfo()
 {
-    DCHECK(!m_Name.empty());
+    DCHECK(!m_DeviceInterfaceName.empty());
 
-    std::string name = m_Name;
+    DEVPROPTYPE propertyType;
+    ULONG propertySize = 0;
+    CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(utf8::widen(m_DeviceInterfaceName).c_str(), &DEVPKEY_Device_InstanceId, &propertyType, nullptr, &propertySize, 0);
 
-    // remove prefix
-    const std::string prefix("\\\\?\\");
-    if (name.find(prefix) != std::string::npos)
-        name = name.substr(prefix.size(), name.size() - prefix.size());
+    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
+    if (cr != CR_BUFFER_SMALL)
+        return false;
 
-    // split by parts
-    auto deviceIdParts = stringutils::split(name, '#');
+    std::wstring deviceId;
+    deviceId.resize(propertySize);
+    cr = ::CM_Get_Device_Interface_PropertyW(utf8::widen(m_DeviceInterfaceName).c_str(), &DEVPKEY_Device_InstanceId, &propertyType, (PBYTE)deviceId.data(), &propertySize, 0);
 
-    // convert device path into device instance id
-    std::wstring deviceId = utf8::widen(deviceIdParts[0] + "\\" + deviceIdParts[1] + "\\" + deviceIdParts[2]);
-
-    DEVINST devInst;
-    CONFIGRET cr = CM_Locate_DevNodeW(&devInst, (DEVINSTID_W)deviceId.c_str(), CM_LOCATE_DEVNODE_NORMAL);
     if (cr != CR_SUCCESS)
         return false;
 
-    constexpr ULONG bufferSize = 512;
-    std::array<wchar_t, bufferSize> buffer;
-    ULONG size = bufferSize;
+    m_DeviceInstanceId = utf8::narrow(deviceId);
 
-    cr = CM_Get_DevNode_Registry_PropertyW(devInst, CM_DRP_MFG, nullptr, buffer.data(), &size, 0);
+    DEVINST devInst;
+    cr = ::CM_Locate_DevNodeW(&devInst, (DEVINSTID_W)deviceId.c_str(), CM_LOCATE_DEVNODE_NORMAL);
+
+    if (cr != CR_SUCCESS)
+        return false;
+
+    propertySize = 0;
+    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_NAME, &propertyType, nullptr, &propertySize, 0);
+
+    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
+    if (cr != CR_BUFFER_SMALL)
+        return false;
+
+    std::wstring friendlyString;
+    friendlyString.resize(propertySize);
+    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_NAME, &propertyType, (PBYTE)friendlyString.data(), &propertySize, 0);
 
     if (cr == CR_SUCCESS)
-        m_Manufacturer = utf8::narrow(buffer.data(), size);
+        m_FriendlyName = utf8::narrow(friendlyString);
 
-    size = bufferSize;
+    propertySize = 0;
+    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_Device_Manufacturer, &propertyType, nullptr, &propertySize, 0);
 
-    cr = CM_Get_DevNode_Registry_PropertyW(devInst, CM_DRP_DEVICEDESC, nullptr, buffer.data(), &size, 0);
+    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
+    if (cr != CR_BUFFER_SMALL)
+        return false;
+
+    std::wstring manufacturer;
+    manufacturer.resize(propertySize);
+    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_Device_Manufacturer, &propertyType, (PBYTE)manufacturer.data(), &propertySize, 0);
 
     if (cr == CR_SUCCESS)
-        m_DeviceDesc = utf8::narrow(buffer.data(), size);
+        m_Manufacturer = utf8::narrow(manufacturer);
 
-    DBGPRINT("Device Info: %s, Device Desc: %s, Manufacturer: %s", m_Name.c_str(), m_DeviceDesc.c_str(), m_Manufacturer.c_str());
-
-    return true;
+    return !m_Manufacturer.empty() || !m_FriendlyName.empty();
 }
 
 bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo)

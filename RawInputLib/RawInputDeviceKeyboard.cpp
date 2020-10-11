@@ -84,8 +84,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
 bool RawInputDeviceKeyboard::QueryDeviceInfo()
 {
-    // Fetch the device's |name_| (RIDI_DEVICENAME).
-    if (!QueryRawDeviceName())
+    if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
     if (!QueryKeyboardInfo())
@@ -115,7 +114,7 @@ ScopedHandle RawInputDeviceKeyboard::OpenKeyboardDevice() const
 {
     // Keyboard is write-only device
     return ScopedHandle(::CreateFile(
-        utf8::widen(m_Name).c_str(), GENERIC_WRITE,
+        utf8::widen(m_DeviceInterfaceName).c_str(), GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
         OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }

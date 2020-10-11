@@ -23,7 +23,7 @@ public:
 protected:
     void OnInput(const RAWINPUT* input) override;
 
-    bool QueryDeviceInfo();
+    bool QueryDeviceInfo() override;
     // "Returns an open handle for the HID device, or an invalid handle if the
     // device could not be opened."
     ScopedHandle OpenHidDevice() const;

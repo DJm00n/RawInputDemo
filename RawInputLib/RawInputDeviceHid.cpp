@@ -28,8 +28,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* /*input*/)
 
 bool RawInputDeviceHid::QueryDeviceInfo()
 {
-    // Fetch the device's |name_| (RIDI_DEVICENAME).
-    if (!QueryRawDeviceName())
+    if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
     // Fetch HID properties (RID_DEVICE_INFO_HID) for this device. This includes
@@ -68,7 +67,7 @@ bool RawInputDeviceHid::QueryDeviceInfo()
 ScopedHandle RawInputDeviceHid::OpenHidDevice() const
 {
     return ScopedHandle(::CreateFile(
-        utf8::widen(m_Name).c_str(), GENERIC_READ | GENERIC_WRITE,
+        utf8::widen(m_DeviceInterfaceName).c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
         OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
