@@ -97,10 +97,6 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     //if (!KeyboardSetLeds(keyboard_handle))
     //   return false;
 
-    // Fetch the human-friendly |m_ProductString|, if available.
-    if (!QueryProductString())
-        m_ProductString = "Unknown Keyboard";
-
     //input |= (leds << 16);
     //if (!DeviceIoControl(kbd, IOCTL_KEYBOARD_SET_INDICATORS, &input, sizeof(input), NULL, 0, &len, NULL))
     //{
@@ -115,7 +111,7 @@ ScopedHandle RawInputDeviceKeyboard::OpenKeyboardDevice() const
     // Keyboard is write-only device
     return ScopedHandle(::CreateFile(
         utf8::widen(m_DeviceInterfaceName).c_str(), GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, /*lpSecurityAttributes=*/nullptr,
         OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
 
@@ -129,16 +125,6 @@ bool RawInputDeviceKeyboard::QueryKeyboardInfo()
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
 
     std::memcpy(&m_KeyboardInfo, &device_info.keyboard, sizeof(m_KeyboardInfo));
-
-    return true;
-}
-
-bool RawInputDeviceKeyboard::QueryProductString()
-{
-    if (m_KeyboardInfo.dwNumberOfKeysTotal == 0)
-        return false;
-
-    m_ProductString = fmt::format("Keyboard ({}-key)", m_KeyboardInfo.dwNumberOfKeysTotal);
 
     return true;
 }

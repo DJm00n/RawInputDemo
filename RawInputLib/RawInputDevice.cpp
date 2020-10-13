@@ -51,60 +51,67 @@ bool RawInputDevice::QueryRawDeviceName()
     return true;
 }
 
+namespace
+{
+    std::vector<uint8_t> GetDeviceInterfaceProperty(const std::wstring& deviceInterfaceName, const DEVPROPKEY* propertyKey, DEVPROPTYPE expectedPropertyType)
+    {
+        DEVPROPTYPE propertyType;
+        ULONG propertySize = 0;
+        CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(deviceInterfaceName.c_str(), propertyKey, &propertyType, nullptr, &propertySize, 0);
+
+        DCHECK_EQ(cr, CR_BUFFER_SMALL);
+        DCHECK_EQ(propertyType, expectedPropertyType);
+
+        std::vector<uint8_t> propertyData(propertySize, 0);
+        cr = ::CM_Get_Device_Interface_PropertyW(deviceInterfaceName.c_str(), propertyKey, &propertyType, (PBYTE)propertyData.data(), &propertySize, 0);
+
+        DCHECK_EQ(cr, CR_SUCCESS);
+        DCHECK_EQ(propertyType, expectedPropertyType);
+
+        return std::move(propertyData);
+    }
+
+    std::vector<uint8_t> GetDevNodeProperty(DEVINST devInst, const DEVPROPKEY* propertyKey, DEVPROPTYPE expectedPropertyType)
+    {
+        DEVPROPTYPE propertyType;
+        ULONG propertySize = 0;
+        CONFIGRET cr = ::CM_Get_DevNode_PropertyW(devInst, propertyKey, &propertyType, nullptr, &propertySize, 0);
+
+        DCHECK_EQ(cr, CR_BUFFER_SMALL);
+        DCHECK_EQ(propertyType, expectedPropertyType);
+
+        std::vector<uint8_t> propertyData(propertySize, 0);
+        cr = ::CM_Get_DevNode_PropertyW(devInst, propertyKey, &propertyType, (PBYTE)propertyData.data(), &propertySize, 0);
+        
+        DCHECK_EQ(cr, CR_SUCCESS);
+        DCHECK_EQ(propertyType, expectedPropertyType);
+
+        return std::move(propertyData);
+    }
+
+    std::wstring PropertyDataToString(const std::vector<uint8_t>& propertyData)
+    {
+        return { (wchar_t*)propertyData.data(), propertyData.size() };
+    }
+}
+
 bool RawInputDevice::QueryDevNodeInfo()
 {
     DCHECK(!m_DeviceInterfaceName.empty());
 
-    DEVPROPTYPE propertyType;
-    ULONG propertySize = 0;
-    CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(utf8::widen(m_DeviceInterfaceName).c_str(), &DEVPKEY_Device_InstanceId, &propertyType, nullptr, &propertySize, 0);
-
-    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
-    if (cr != CR_BUFFER_SMALL)
-        return false;
-
-    std::wstring deviceId;
-    deviceId.resize(propertySize);
-    cr = ::CM_Get_Device_Interface_PropertyW(utf8::widen(m_DeviceInterfaceName).c_str(), &DEVPKEY_Device_InstanceId, &propertyType, (PBYTE)deviceId.data(), &propertySize, 0);
-
-    if (cr != CR_SUCCESS)
-        return false;
-
-    m_DeviceInstanceId = utf8::narrow(deviceId);
+    auto deviceId = GetDeviceInterfaceProperty(utf8::widen(m_DeviceInterfaceName), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING);
 
     DEVINST devInst;
-    cr = ::CM_Locate_DevNodeW(&devInst, (DEVINSTID_W)deviceId.c_str(), CM_LOCATE_DEVNODE_NORMAL);
+    CONFIGRET cr = ::CM_Locate_DevNodeW(&devInst, (DEVINSTID_W)deviceId.data(), CM_LOCATE_DEVNODE_NORMAL);
 
     if (cr != CR_SUCCESS)
         return false;
 
-    propertySize = 0;
-    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_NAME, &propertyType, nullptr, &propertySize, 0);
+    m_FriendlyName = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_NAME, DEVPROP_TYPE_STRING)));
+    m_Manufacturer = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING)));
 
-    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
-    if (cr != CR_BUFFER_SMALL)
-        return false;
-
-    std::wstring friendlyString;
-    friendlyString.resize(propertySize);
-    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_NAME, &propertyType, (PBYTE)friendlyString.data(), &propertySize, 0);
-
-    if (cr == CR_SUCCESS)
-        m_FriendlyName = utf8::narrow(friendlyString);
-
-    propertySize = 0;
-    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_Device_Manufacturer, &propertyType, nullptr, &propertySize, 0);
-
-    DCHECK_EQ(propertyType, DEVPROP_TYPE_STRING);
-    if (cr != CR_BUFFER_SMALL)
-        return false;
-
-    std::wstring manufacturer;
-    manufacturer.resize(propertySize);
-    cr = ::CM_Get_DevNode_PropertyW(devInst, &DEVPKEY_Device_Manufacturer, &propertyType, (PBYTE)manufacturer.data(), &propertySize, 0);
-
-    if (cr == CR_SUCCESS)
-        m_Manufacturer = utf8::narrow(manufacturer);
+    auto hardwareIds = GetDevNodeProperty(devInst, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST);
+    //std::wstring s((wchar_t*)hardwareIds.data(), hardwareIds.size());
 
     return !m_Manufacturer.empty() || !m_FriendlyName.empty();
 }

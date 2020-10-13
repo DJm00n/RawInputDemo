@@ -97,7 +97,7 @@ bool RawInputDeviceMouse::QueryMouseInfo()
     if (!QueryRawDeviceInfo(m_Handle, &device_info))
         return false;
 
-    //DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEMOUSE));
+    DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEMOUSE));
 
     std::memcpy(&m_MouseInfo, &device_info.hid, sizeof(m_MouseInfo));
 
