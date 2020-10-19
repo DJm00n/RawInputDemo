@@ -3,6 +3,8 @@
 
 #include "RawInputDevice.h"
 
+#include <hidsdi.h> // HidD_* API
+
 #include <initguid.h>
 #include <Cfgmgr32.h>
 #include <Devpkey.h>
@@ -16,20 +18,27 @@ RawInputDevice::~RawInputDevice() = default;
 
 bool RawInputDevice::QueryDeviceInfo()
 {
-    if (!QueryRawDeviceName())
+    if (!m_RawInput.QueryInfo(m_Handle))
         return false;
 
-    if (!QueryDevNodeInfo())
+    if (!m_Device.QueryInfo(m_RawInput.m_InterfaceName))
         return false;
+
+    if (m_Device.m_IsHidDevice && !m_Hid.QueryInfo(m_RawInput.m_InterfaceHandle))
+    {
+        DBGPRINT("Cannot get HID info from '%s'.", m_RawInput.m_InterfaceName.c_str());
+    }
 
     return true;
 }
 
-bool RawInputDevice::QueryRawDeviceName()
+bool RawInputDevice::RawInputInfo::QueryInfo(HANDLE rawInputDeviceHandle)
 {
+    DCHECK(IsValidHandle(rawInputDeviceHandle));
+
     UINT size = 0;
 
-    UINT result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, nullptr, &size);
+    UINT result = ::GetRawInputDeviceInfoW(rawInputDeviceHandle, RIDI_DEVICENAME, nullptr, &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -38,7 +47,7 @@ bool RawInputDevice::QueryRawDeviceName()
     DCHECK_EQ(0u, result);
 
     std::wstring buffer(size, 0);
-    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_DEVICENAME, buffer.data(), &size);
+    result = ::GetRawInputDeviceInfoW(rawInputDeviceHandle, RIDI_DEVICENAME, buffer.data(), &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -46,7 +55,58 @@ bool RawInputDevice::QueryRawDeviceName()
     }
     DCHECK_EQ(size, result);
 
-    m_DeviceInterfaceName = utf8::narrow(buffer);
+    m_InterfaceName = utf8::narrow(buffer);
+
+    DWORD desired_access = GENERIC_WRITE | GENERIC_READ;
+    DWORD share_mode = FILE_SHARE_READ | FILE_SHARE_WRITE;
+
+    m_InterfaceHandle.reset(::CreateFileW(buffer.c_str(), desired_access, share_mode, 0, OPEN_EXISTING, 0, 0));
+
+    if (!IsValidHandle(m_InterfaceHandle.get()))
+    {
+        /* System devices, such as keyboards and mice, cannot be opened in
+           read-write mode, because the system takes exclusive control over
+           them.  This is to prevent keyloggers.  However, feature reports
+           can still be sent and received.  Retry opening the device, but
+           without read/write access. */
+        desired_access = 0;
+        m_InterfaceHandle.reset(::CreateFileW(buffer.c_str(), desired_access, share_mode, 0, OPEN_EXISTING, 0, 0));
+    }
+
+    return !m_InterfaceName.empty() && IsValidHandle(m_InterfaceHandle.get());
+}
+
+bool RawInputDevice::HIDInfo::QueryInfo(const ScopedHandle& interfaceHandle)
+{
+    DCHECK(IsValidHandle(interfaceHandle.get()));
+
+    std::wstring buffer;
+    buffer.resize(RawInputDevice::kIdLengthCap);
+
+    if (!::HidD_GetManufacturerString(interfaceHandle.get(), buffer.data(), RawInputDevice::kIdLengthCap))
+        return false;
+
+    m_ManufacturerString = utf8::narrow(buffer);
+
+    if (!::HidD_GetProductString(interfaceHandle.get(), buffer.data(), RawInputDevice::kIdLengthCap))
+        return false;
+
+    m_ProductString = utf8::narrow(buffer);
+
+    if (!::HidD_GetSerialNumberString(interfaceHandle.get(), &buffer.front(), RawInputDevice::kIdLengthCap))
+        return false;
+
+    m_SerialNumberString = utf8::narrow(buffer);
+
+    HIDD_ATTRIBUTES attrib;
+    attrib.Size = sizeof(HIDD_ATTRIBUTES);
+
+    if (!::HidD_GetAttributes(interfaceHandle.get(), &attrib))
+        return false;
+
+    m_VendorId = attrib.VendorID;
+    m_ProductId = attrib.ProductID;
+    m_VersionNumber = attrib.VersionNumber;
 
     return true;
 }
@@ -91,15 +151,47 @@ namespace
 
     std::wstring PropertyDataToString(const std::vector<uint8_t>& propertyData)
     {
-        return { (wchar_t*)propertyData.data(), propertyData.size() };
+        return { (wchar_t*)propertyData.data(), propertyData.size() / sizeof(wchar_t) };
+    }
+
+    std::vector<std::wstring> PropertyDataToStringList(const std::vector<uint8_t>& propertyData)
+    {
+        std::wstring strList = PropertyDataToString(propertyData);
+
+        std::vector<std::wstring> outList;
+        for (size_t i = 0; i != std::wstring::npos && i < strList.size(); i = strList.find(L'\0', i), ++i)
+        {
+            std::wstring elem(&strList[i]);
+            if (!elem.empty())
+                outList.emplace_back(elem);
+        }
+
+        return std::move(outList);
+    }
+
+    std::wstring GetInterfaceAlias(const std::wstring& deviceInterfaceName, GUID* intefaceGuid)
+    {
+        ULONG aliasSize = deviceInterfaceName.size() + 1;
+
+        std::wstring alias(aliasSize, 0);
+        CONFIGRET cr = ::CM_Get_Device_Interface_AliasW(deviceInterfaceName.c_str(), intefaceGuid, alias.data(), &aliasSize, 0);
+
+        // ensure that that it properly sized
+        alias.resize(aliasSize > 0 ? aliasSize - 1 : 0);
+
+        DCHECK(cr == CR_SUCCESS || cr == CR_NO_SUCH_DEVICE_INTERFACE);
+
+        return std::move(alias);
     }
 }
 
-bool RawInputDevice::QueryDevNodeInfo()
+bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
 {
-    DCHECK(!m_DeviceInterfaceName.empty());
+    DCHECK(!interfaceName.empty());
 
-    auto deviceId = GetDeviceInterfaceProperty(utf8::widen(m_DeviceInterfaceName), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING);
+    auto deviceId = GetDeviceInterfaceProperty(utf8::widen(interfaceName), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING);
+    
+    m_InstanceId = utf8::narrow(PropertyDataToString(deviceId));
 
     DEVINST devInst;
     CONFIGRET cr = ::CM_Locate_DevNodeW(&devInst, (DEVINSTID_W)deviceId.data(), CM_LOCATE_DEVNODE_NORMAL);
@@ -107,13 +199,29 @@ bool RawInputDevice::QueryDevNodeInfo()
     if (cr != CR_SUCCESS)
         return false;
 
-    m_FriendlyName = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_NAME, DEVPROP_TYPE_STRING)));
     m_Manufacturer = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING)));
+    m_FriendlyName = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_NAME, DEVPROP_TYPE_STRING)));
+    
+    // We're supporting only these device classes
+    std::string deviceClass = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING)));
+    if (deviceClass != "HIDClass" && deviceClass != "Keyboard" && deviceClass != "Mouse")
+    {
+        DBGPRINT("Unknown device class '%s' of '%s'.", deviceClass.c_str(), m_InstanceId.c_str());
+        return false;
+    }
 
-    auto hardwareIds = GetDevNodeProperty(devInst, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST);
-    //std::wstring s((wchar_t*)hardwareIds.data(), hardwareIds.size());
+    m_DriverName = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_Device_Driver, DEVPROP_TYPE_STRING)));
 
-    return !m_Manufacturer.empty() || !m_FriendlyName.empty();
+    GUID hidInterfaceGuid;
+    ::HidD_GetHidGuid(&hidInterfaceGuid);
+
+    auto hidAlias = GetInterfaceAlias(utf8::widen(interfaceName), &hidInterfaceGuid);
+    m_IsHidDevice = !hidAlias.empty();
+
+    // TODO extract VID/PID from hardwareId
+    //auto hardwareIds = PropertyDataToStringList(GetDevNodeProperty(devInst, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
+
+    return !m_FriendlyName.empty() || !m_Manufacturer.empty();
 }
 
 bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo)

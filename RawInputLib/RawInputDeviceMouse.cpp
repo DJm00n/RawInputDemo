@@ -3,6 +3,8 @@
 
 #include "RawInputDeviceMouse.h"
 
+#include <hidsdi.h>
+
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
@@ -87,6 +89,12 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
     if (!QueryMouseInfo())
         return false;
 
+    if (IsValidHandle(m_RawInput.m_InterfaceHandle.get()))
+    {
+        PHIDP_PREPARSED_DATA pp_data = NULL;
+        auto res = HidD_GetPreparsedData(m_RawInput.m_InterfaceHandle.get(), &pp_data);
+    }
+
     return true;
 }
 
@@ -99,7 +107,7 @@ bool RawInputDeviceMouse::QueryMouseInfo()
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEMOUSE));
 
-    std::memcpy(&m_MouseInfo, &device_info.hid, sizeof(m_MouseInfo));
+    std::memcpy(&m_MouseInfo, &device_info.mouse, sizeof(m_MouseInfo));
 
     return true;
 }

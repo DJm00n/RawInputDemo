@@ -78,7 +78,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     for (int i = 0; i < ret; ++i)
     {
         std::string utf8char = utf8::narrow(&uniChars[i], 1);
-            DBGPRINT("Keyboard Char=%s\n", utf8char.c_str());
+        DBGPRINT("Keyboard Char=%s\n", utf8char.c_str());
     }
 }
 
@@ -88,10 +88,6 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
         return false;
 
     if (!QueryKeyboardInfo())
-        return false;
-
-    auto keyboard_handle = OpenKeyboardDevice();
-    if (!IsValidHandle(keyboard_handle.get()))
         return false;
 
     //if (!KeyboardSetLeds(keyboard_handle))
@@ -104,15 +100,6 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     //}
 
     return true;
-}
-
-ScopedHandle RawInputDeviceKeyboard::OpenKeyboardDevice() const
-{
-    // Keyboard is write-only device
-    return ScopedHandle(::CreateFile(
-        utf8::widen(m_DeviceInterfaceName).c_str(), GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, /*lpSecurityAttributes=*/nullptr,
-        OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
 }
 
 bool RawInputDeviceKeyboard::QueryKeyboardInfo()

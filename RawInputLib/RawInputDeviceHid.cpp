@@ -39,17 +39,8 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     // We can now use the name to query the OS for a file handle that is used to
     // read the product string from the device. If the OS does not return a valid
     // handle this device is invalid.
-    auto device_handle = OpenHidDevice();
-    if (!IsValidHandle(device_handle.get()))
+    if (!IsValidHandle(m_RawInput.m_InterfaceHandle.get()))
         return false;
-
-    // Fetch the human-friendly |m_ManufacturerString|, if available.
-    if (!QueryManufacturerString(device_handle))
-        m_ManufacturerString = "Unknown Vendor";
-
-    // Fetch the human-friendly |m_ProductString|, if available.
-    if (!QueryProductString(device_handle))
-        m_ProductString = "Unknown HID Device";
 
     // Fetch information about the buttons and axes on this device. This sets
     // |m_ButtonsLength| and |m_AxesLength| to their correct values and populates
@@ -64,14 +55,6 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     return true;
 }
 
-ScopedHandle RawInputDeviceHid::OpenHidDevice() const
-{
-    return ScopedHandle(::CreateFile(
-        utf8::widen(m_DeviceInterfaceName).c_str(), GENERIC_READ | GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, /*lpSecurityAttributes=*/nullptr,
-        OPEN_EXISTING, /*dwFlagsAndAttributes=*/0, /*hTemplateFile=*/nullptr));
-}
-
 bool RawInputDeviceHid::QueryHidInfo()
 {
     RID_DEVICE_INFO device_info;
@@ -84,36 +67,6 @@ bool RawInputDeviceHid::QueryHidInfo()
     std::memcpy(&m_HidInfo, &device_info.hid, sizeof(m_HidInfo));
 
     // TODO https://github.com/Microsoft/Windows-driver-samples/tree/master/hid/hclient
-
-    return true;
-}
-
-bool RawInputDeviceHid::QueryManufacturerString(ScopedHandle& device_handle)
-{
-    DCHECK(IsValidHandle(device_handle.get()));
-
-    std::wstring manufacturerString;
-    manufacturerString.resize(RawInputDevice::kIdLengthCap);
-
-    if (!HidD_GetManufacturerString(device_handle.get(), &manufacturerString.front(), RawInputDevice::kIdLengthCap))
-        return false;
-
-    m_ManufacturerString = utf8::narrow(manufacturerString);
-
-    return true;
-}
-
-bool RawInputDeviceHid::QueryProductString(ScopedHandle & device_handle)
-{
-    DCHECK(IsValidHandle(device_handle.get()));
-
-    std::wstring productString;
-    productString.resize(RawInputDevice::kIdLengthCap);
-
-    if (!HidD_GetProductString(device_handle.get(), &productString.front(), RawInputDevice::kIdLengthCap))
-        return false;
-
-    m_ProductString = utf8::narrow(productString);
 
     return true;
 }

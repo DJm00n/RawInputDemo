@@ -1,5 +1,10 @@
 #pragma once
 
+#include <string>
+#include <vector>
+#include <memory>
+#include <iostream>
+
 // UTF8<=>UTF16 conversion functions
 // recommended at http://utf8everywhere.org/#how.cvt
 namespace utf8

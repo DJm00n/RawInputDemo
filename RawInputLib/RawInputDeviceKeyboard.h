@@ -13,12 +13,7 @@ protected:
 
     bool QueryDeviceInfo();
 
-    // "Returns an open handle for the Keyboard device, or an invalid handle if the
-    // device could not be opened."
-    ScopedHandle OpenKeyboardDevice() const;
-
     bool QueryKeyboardInfo();
-    bool QueryProductString();
 
     bool KeyboardSetLeds(ScopedHandle& device_handle);
 

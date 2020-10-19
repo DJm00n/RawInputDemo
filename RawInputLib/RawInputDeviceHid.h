@@ -13,24 +13,15 @@ public:
     RawInputDeviceHid(HANDLE handle);
     ~RawInputDeviceHid();
 
-    uint16_t GetVendorId() const { return static_cast<uint16_t>(m_HidInfo.dwVendorId); }
-    uint16_t GetProductId() const { return static_cast<uint16_t>(m_HidInfo.dwProductId); }
-    uint16_t GetVersionNumber() const { return static_cast<uint16_t>(m_HidInfo.dwVersionNumber); }
     uint16_t GetUsagePage() const { return static_cast<uint16_t>(m_HidInfo.usUsagePage); }
     uint16_t GetUsageId() const { return static_cast<uint16_t>(m_HidInfo.usUsage); }
-    std::string GetProductString() const { return m_ProductString; }
 
 protected:
     void OnInput(const RAWINPUT* input) override;
 
     bool QueryDeviceInfo() override;
-    // "Returns an open handle for the HID device, or an invalid handle if the
-    // device could not be opened."
-    ScopedHandle OpenHidDevice() const;
 
     bool QueryHidInfo();
-    bool QueryManufacturerString(ScopedHandle& device_handle);
-    bool QueryProductString(ScopedHandle& device_handle);
     bool QueryDeviceCapabilities();
     void QueryButtonCapabilities(uint16_t button_count);
     void QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool>* button_indices_used);
@@ -48,8 +39,6 @@ private:
 
 private:
     RID_DEVICE_INFO_HID m_HidInfo = {};
-    std::string m_ManufacturerString;
-    std::string m_ProductString;
 
     size_t m_ButtonsLength = 0;
     bool m_Buttons[kButtonsLengthCap];
