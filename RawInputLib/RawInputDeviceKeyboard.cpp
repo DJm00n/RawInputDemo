@@ -52,7 +52,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     // update extended VK key state
     if(vk != rawKeyboard.VKey)
         m_KeyState[vk] = keyPressed ? 0x80 : 0x00;
-    
+
     // not pressed or repeat press
     if (!keyPressed || m_KeyState[rawKeyboard.VKey])
         return;
@@ -87,49 +87,66 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
-    if (!QueryKeyboardInfo())
+    if (!m_KeyboardInfo.QueryInfo(m_Handle))
+    {
+        DBGPRINT("Cannot get Raw Input Keyboard info from '%s'.", m_RawInput.m_InterfaceName.c_str());
         return false;
+    }
 
-    //if (!KeyboardSetLeds(keyboard_handle))
-    //   return false;
-
-    //input |= (leds << 16);
-    //if (!DeviceIoControl(kbd, IOCTL_KEYBOARD_SET_INDICATORS, &input, sizeof(input), NULL, 0, &len, NULL))
-    //{
-    //    printf("Error writing to LEDs!\n");
-    //}
+    if (!m_HidKeyboardInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
+    {
+        DBGPRINT("Cannot get HID Keyboard info from '%s'.", m_RawInput.m_InterfaceName.c_str());
+        return false;
+    }
 
     return true;
 }
 
-bool RawInputDeviceKeyboard::QueryKeyboardInfo()
+bool RawInputDeviceKeyboard::KeyboardInfo::QueryInfo(HANDLE rawInputDeviceHandle)
 {
+    // https://docs.microsoft.com/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_attributes
+    // https://docs.microsoft.com/windows/win32/api/winuser/ns-winuser-rid_device_info_keyboard
+
     RID_DEVICE_INFO device_info;
 
-    if (!QueryRawDeviceInfo(m_Handle, &device_info))
+    if (!RawInputDevice::QueryRawDeviceInfo(rawInputDeviceHandle, &device_info))
         return false;
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
 
-    std::memcpy(&m_KeyboardInfo, &device_info.keyboard, sizeof(m_KeyboardInfo));
+    RID_DEVICE_INFO_KEYBOARD &keyboardInfo = device_info.keyboard;
+
+    Type = static_cast<uint16_t>(keyboardInfo.dwType);
+    SubType = static_cast<uint16_t>(keyboardInfo.dwSubType);
+    KeyboardMode = static_cast<uint8_t>(keyboardInfo.dwKeyboardMode);
+    NumberOfFunctionKeys = static_cast<uint16_t>(keyboardInfo.dwNumberOfFunctionKeys);
+    NumberOfIndicators = static_cast<uint16_t>(keyboardInfo.dwNumberOfIndicators);
+    NumberOfKeysTotal = static_cast<uint16_t>(keyboardInfo.dwNumberOfKeysTotal);
 
     return true;
 }
 
-bool RawInputDeviceKeyboard::KeyboardSetLeds(ScopedHandle& keyboard_handle)
+bool RawInputDeviceKeyboard::HidKeyboardInfo::QueryInfo(const ScopedHandle& interfaceHandle)
 {
-    DCHECK(IsValidHandle(keyboard_handle.get()));
+    // https://docs.microsoft.com/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_extended_attributes
 
-    KEYBOARD_INDICATOR_PARAMETERS indicator_parameters;
-    indicator_parameters.UnitId = 0;
-    indicator_parameters.LedFlags = KEYBOARD_SCROLL_LOCK_ON | KEYBOARD_NUM_LOCK_ON | KEYBOARD_CAPS_LOCK_ON;
+    KEYBOARD_EXTENDED_ATTRIBUTES extended_attributes{ KEYBOARD_EXTENDED_ATTRIBUTES_STRUCT_VERSION_1 };
+    DWORD len = 0;
 
-    DWORD len;
-    if (!DeviceIoControl(keyboard_handle.get(), IOCTL_KEYBOARD_SET_INDICATORS, &indicator_parameters, sizeof(indicator_parameters), nullptr, 0, &len, nullptr))
+    if (!DeviceIoControl(interfaceHandle.get(), IOCTL_KEYBOARD_QUERY_EXTENDED_ATTRIBUTES, nullptr, 0, &extended_attributes, sizeof(extended_attributes), &len, nullptr))
     {
-        //auto error = GetLastError();
+        DBGPRINT("DeviceIoControl failed. GetLastError=0x%d", GetLastError());
         return false;
     }
+
+    DCHECK_EQ(len, sizeof(extended_attributes));
+
+    FormFactor = extended_attributes.FormFactor;
+    KeyType = extended_attributes.IETFLanguageTagIndex;
+    PhysicalLayout = extended_attributes.PhysicalLayout;
+    VendorSpecificPhysicalLayout = extended_attributes.VendorSpecificPhysicalLayout;
+    IETFLanguageTagIndex = extended_attributes.IETFLanguageTagIndex;
+    ImplementedInputAssistControls = extended_attributes.ImplementedInputAssistControls;
 
     return true;
 }

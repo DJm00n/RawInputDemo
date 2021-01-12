@@ -97,8 +97,11 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     NTSTATUS status = HidP_GetCaps(m_PreparsedData, &caps);
     DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
 
-    QueryButtonCapabilities(caps.NumberInputButtonCaps);
-    QueryAxisCapabilities(caps.NumberInputValueCaps);
+    if (caps.NumberInputButtonCaps > 0)
+        QueryButtonCapabilities(caps.NumberInputButtonCaps);
+
+    if (caps.NumberInputValueCaps > 0)
+        QueryAxisCapabilities(caps.NumberInputValueCaps);
 
     return true;
 }

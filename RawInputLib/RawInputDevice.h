@@ -18,11 +18,11 @@ public:
 
     bool IsValid() { return m_IsValid; }
 
-    std::string GetManufacturerString() const { return !m_Hid.m_ManufacturerString.empty() ? m_Hid.m_ManufacturerString : m_Device.m_Manufacturer; }
-    std::string GetProductString() const { return !m_Hid.m_ProductString.empty() ? m_Hid.m_ProductString : m_Device.m_FriendlyName; }
-    uint16_t GetVendorId() const { return m_Hid.m_VendorId; }
-    uint16_t GetProductId() const { return m_Hid.m_ProductId; }
-    uint16_t GetVersionNumber() const { return m_Hid.m_VersionNumber; }
+    std::string GetManufacturerString() const { return !m_HidInfo.m_ManufacturerString.empty() ? m_HidInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
+    std::string GetProductString() const { return !m_HidInfo.m_ProductString.empty() ? m_HidInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
+    uint16_t GetVendorId() const { return m_HidInfo.m_VendorId; }
+    uint16_t GetProductId() const { return m_HidInfo.m_ProductId; }
+    uint16_t GetVersionNumber() const { return m_HidInfo.m_VersionNumber; }
 
 protected:
     friend class RawInputDeviceManager;
@@ -32,7 +32,7 @@ protected:
     virtual bool QueryDeviceInfo();
 
     // (RIDI_DEVICEINFO). nullptr on failure.
-    static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
+    static bool QueryRawDeviceInfo(HANDLE rawInputDeviceHandle, RID_DEVICE_INFO* deviceInfo);
 
     HANDLE m_Handle = INVALID_HANDLE_VALUE;
 
@@ -54,7 +54,7 @@ protected:
         uint16_t m_VendorId = 0;
         uint16_t m_ProductId = 0;
         uint16_t m_VersionNumber = 0;
-    } m_Hid;
+    } m_HidInfo;
 
     struct DeviceNodeInfo
     {
@@ -63,9 +63,9 @@ protected:
         std::string m_InstanceId;
         std::string m_Manufacturer;
         std::string m_FriendlyName;
-        std::string m_DriverName;
-        bool m_IsHidDevice = false;
-    } m_Device;
+        std::string m_DeviceService;
+        std::string m_DeviceClass;
+    } m_DeviceNodeInfo;
 
     bool m_IsValid;
 };
