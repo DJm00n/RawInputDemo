@@ -5,13 +5,20 @@
 
 #include <hidsdi.h>
 
+#include <ntddmou.h>
+
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
     m_IsValid = QueryDeviceInfo();
+
+    DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
-RawInputDeviceMouse::~RawInputDeviceMouse() = default;
+RawInputDeviceMouse::~RawInputDeviceMouse()
+{
+    DBGPRINT("Removed Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+}
 
 void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
 {
@@ -29,7 +36,7 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
 
         int width = GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
         int height = GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
-        
+
         int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
         int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
 
@@ -86,28 +93,41 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
     if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
-    if (!QueryMouseInfo())
+    if (!m_MouseInfo.QueryInfo(m_Handle))
+    {
+        DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_RawInput.m_InterfaceName.c_str());
         return false;
+    }
 
-    if (IsValidHandle(m_RawInput.m_InterfaceHandle.get()))
+    /*if (IsValidHandle(m_RawInput.m_InterfaceHandle.get()))
     {
         PHIDP_PREPARSED_DATA pp_data = NULL;
         auto res = HidD_GetPreparsedData(m_RawInput.m_InterfaceHandle.get(), &pp_data);
-    }
+    }*/
 
     return true;
 }
 
-bool RawInputDeviceMouse::QueryMouseInfo()
+bool RawInputDeviceMouse::MouseInfo::QueryInfo(HANDLE rawInputDeviceHandle)
 {
     RID_DEVICE_INFO device_info;
 
-    if (!QueryRawDeviceInfo(m_Handle, &device_info))
+    if (!RawInputDevice::QueryRawDeviceInfo(rawInputDeviceHandle, &device_info))
         return false;
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEMOUSE));
 
-    std::memcpy(&m_MouseInfo, &device_info.mouse, sizeof(m_MouseInfo));
+    const RID_DEVICE_INFO_MOUSE& mouseInfo = device_info.mouse;
+
+    m_NumberOfButtons = static_cast<uint16_t>(mouseInfo.dwNumberOfButtons);
+    m_SampleRate = static_cast<uint16_t>(mouseInfo.dwSampleRate);
+    m_HasHorizontalWheel = mouseInfo.fHasHorizontalWheel;
+
+    if ((mouseInfo.dwId & (WHEELMOUSE_I8042_HARDWARE | WHEELMOUSE_SERIAL_HARDWARE | WHEELMOUSE_HID_HARDWARE)) != 0)
+        m_HasVerticalWheel = true;
+
+    if ((mouseInfo.dwId & HORIZONTAL_WHEEL_PRESENT) != 0)
+        m_HasHorizontalWheel = true;
 
     return true;
 }

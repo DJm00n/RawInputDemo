@@ -13,8 +13,14 @@ protected:
 
     bool QueryDeviceInfo();
 
-    bool QueryMouseInfo();
-
 private:
-    RID_DEVICE_INFO_MOUSE m_MouseInfo = {};
+    struct MouseInfo
+    {
+        bool QueryInfo(HANDLE rawInputDeviceHandle);
+
+        uint16_t m_NumberOfButtons;
+        uint16_t m_SampleRate;
+        bool m_HasVerticalWheel;
+        bool m_HasHorizontalWheel;
+    } m_MouseInfo;
 };

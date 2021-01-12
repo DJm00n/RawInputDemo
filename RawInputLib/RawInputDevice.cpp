@@ -25,9 +25,9 @@ bool RawInputDevice::QueryDeviceInfo()
         return false;
 
     // optional HID device info
-    if (m_HidInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
+    if (!m_HidInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
     {
-        DBGPRINT("Cannot get HID info from '%s' inteface.", m_RawInput.m_InterfaceName.c_str());
+        //DBGPRINT("Cannot get optional HID info from '%s' interface.", m_RawInput.m_InterfaceName.c_str());
     }
 
     return true;

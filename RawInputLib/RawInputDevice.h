@@ -18,6 +18,8 @@ public:
 
     bool IsValid() { return m_IsValid; }
 
+    std::string GetInterfacePath() const { return m_RawInput.m_InterfaceName; }
+
     std::string GetManufacturerString() const { return !m_HidInfo.m_ManufacturerString.empty() ? m_HidInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
     std::string GetProductString() const { return !m_HidInfo.m_ProductString.empty() ? m_HidInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
     uint16_t GetVendorId() const { return m_HidInfo.m_VendorId; }

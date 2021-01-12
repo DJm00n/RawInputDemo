@@ -28,7 +28,7 @@ private:
         uint16_t NumberOfKeysTotal = 0;
     } m_KeyboardInfo;
 
-    struct HidKeyboardInfo
+    struct ExtendedKeyboardInfo
     {
         bool QueryInfo(const ScopedHandle& interfaceHandle);
 
@@ -38,7 +38,7 @@ private:
         uint8_t VendorSpecificPhysicalLayout = 0;
         uint8_t IETFLanguageTagIndex = 0;
         uint8_t ImplementedInputAssistControls = 0;
-    } m_HidKeyboardInfo;
+    } m_ExtendedKeyboardInfo;
 
     std::array<uint8_t, 256> m_KeyState;
 };

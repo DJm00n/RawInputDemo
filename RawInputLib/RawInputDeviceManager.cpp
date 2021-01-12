@@ -137,7 +137,7 @@ void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWIN
         auto it = m_Devices.find(input->header.hDevice);
         if (it == m_Devices.end())
         {
-            //PLOG(ERROR) << "Device not found";
+            DBGPRINT("Device 0x%x not found", input->header.hDevice);
             return;
         }
 
@@ -154,14 +154,14 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCod
     {
         if (m_Devices.find(hDevice) != m_Devices.end())
         {
-            //PLOG(ERROR) << "Device already exist";
+            DBGPRINT("Device 0x%x already exist", hDevice);
             return;
         }
 
         RID_DEVICE_INFO info = {};
         if (!RawInputDevice::QueryRawDeviceInfo(hDevice, &info))
         {
-            //PLOG(ERROR) << "Cannot get device type";
+            DBGPRINT("Cannot get Extended Keyboard info from 0x%x", hDevice);
             return;
         }
 
@@ -169,7 +169,7 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCod
 
         if (!new_device || !new_device->IsValid())
         {
-            DBGPRINT("Error while creating device of type %d.", info.dwType);
+            DBGPRINT("Error while creating device of type %d", info.dwType);
             return;
         }
 
@@ -180,7 +180,7 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCod
         auto it = m_Devices.find(hDevice);
         if (it == m_Devices.end())
         {
-            //PLOG(ERROR) << "Device not found";
+            DBGPRINT("Device 0x%x not found", hDevice);
             return;
         }
 

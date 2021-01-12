@@ -17,9 +17,14 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     : RawInputDevice(handle)
 {
     m_IsValid = QueryDeviceInfo();
+
+    DBGPRINT("New HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
-RawInputDeviceHid::~RawInputDeviceHid() = default;
+RawInputDeviceHid::~RawInputDeviceHid()
+{
+    DBGPRINT("Removed HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+}
 
 void RawInputDeviceHid::OnInput(const RAWINPUT* /*input*/)
 {

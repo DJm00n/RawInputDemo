@@ -12,9 +12,14 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
     : RawInputDevice(handle)
 {
     m_IsValid = QueryDeviceInfo();
+
+    DBGPRINT("New Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
-RawInputDeviceKeyboard::~RawInputDeviceKeyboard() = default;
+RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
+{
+    DBGPRINT("Removed Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+}
 
 void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 {
@@ -89,14 +94,14 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
 
     if (!m_KeyboardInfo.QueryInfo(m_Handle))
     {
-        DBGPRINT("Cannot get Raw Input Keyboard info from '%s'.", m_RawInput.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Raw Input Keyboard info from: %s", m_RawInput.m_InterfaceName.c_str());
         return false;
     }
 
-    if (!m_HidKeyboardInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
+    // optional HID device info
+    if (!m_ExtendedKeyboardInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
     {
-        DBGPRINT("Cannot get HID Keyboard info from '%s'.", m_RawInput.m_InterfaceName.c_str());
-        return false;
+        //DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInput.m_InterfaceName.c_str());
     }
 
     return true;
@@ -114,7 +119,7 @@ bool RawInputDeviceKeyboard::KeyboardInfo::QueryInfo(HANDLE rawInputDeviceHandle
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));
 
-    RID_DEVICE_INFO_KEYBOARD &keyboardInfo = device_info.keyboard;
+    const RID_DEVICE_INFO_KEYBOARD &keyboardInfo = device_info.keyboard;
 
     Type = static_cast<uint16_t>(keyboardInfo.dwType);
     SubType = static_cast<uint16_t>(keyboardInfo.dwSubType);
@@ -126,7 +131,7 @@ bool RawInputDeviceKeyboard::KeyboardInfo::QueryInfo(HANDLE rawInputDeviceHandle
     return true;
 }
 
-bool RawInputDeviceKeyboard::HidKeyboardInfo::QueryInfo(const ScopedHandle& interfaceHandle)
+bool RawInputDeviceKeyboard::ExtendedKeyboardInfo::QueryInfo(const ScopedHandle& interfaceHandle)
 {
     // https://docs.microsoft.com/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_extended_attributes
 
@@ -134,10 +139,7 @@ bool RawInputDeviceKeyboard::HidKeyboardInfo::QueryInfo(const ScopedHandle& inte
     DWORD len = 0;
 
     if (!DeviceIoControl(interfaceHandle.get(), IOCTL_KEYBOARD_QUERY_EXTENDED_ATTRIBUTES, nullptr, 0, &extended_attributes, sizeof(extended_attributes), &len, nullptr))
-    {
-        DBGPRINT("DeviceIoControl failed. GetLastError=0x%d", GetLastError());
         return false;
-    }
 
     DCHECK_EQ(len, sizeof(extended_attributes));
 
