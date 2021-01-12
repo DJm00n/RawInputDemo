@@ -16,7 +16,7 @@ protected:
 private:
     struct MouseInfo
     {
-        bool QueryInfo(HANDLE rawInputDeviceHandle);
+        bool QueryInfo(HANDLE handle);
 
         uint16_t m_NumberOfButtons;
         uint16_t m_SampleRate;

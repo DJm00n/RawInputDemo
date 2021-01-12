@@ -34,13 +34,13 @@ protected:
     virtual bool QueryDeviceInfo();
 
     // (RIDI_DEVICEINFO). nullptr on failure.
-    static bool QueryRawDeviceInfo(HANDLE rawInputDeviceHandle, RID_DEVICE_INFO* deviceInfo);
+    static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
 
     HANDLE m_Handle = INVALID_HANDLE_VALUE;
 
     struct RawInputInfo
     {
-        bool QueryInfo(HANDLE rawInputDeviceHandle);
+        bool QueryInfo(HANDLE handle);
 
         std::string m_InterfaceName;
         ScopedHandle m_InterfaceHandle;

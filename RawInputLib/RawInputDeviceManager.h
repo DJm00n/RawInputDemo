@@ -12,13 +12,13 @@ public:
     RawInputDeviceManager(RawInputDeviceManager&) = delete;
     void operator=(RawInputDeviceManager) = delete;
 
-    void Register(HWND hWndTarget);
+    void Register(HWND hWnd);
     void Unregister();
 
     void EnumerateDevices();
 
-    void OnInput(HWND hWndInput, UINT rimCode, HRAWINPUT hRawInput);
-    void OnInputDeviceChange(HWND hWndInput, UINT gidcCode, HANDLE hDevice);
+    void OnInput(HWND hWnd, UINT rimCode, HRAWINPUT rawInputHandle);
+    void OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle);
 
 private:
     static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle, DWORD deviceType);

@@ -33,13 +33,13 @@ bool RawInputDevice::QueryDeviceInfo()
     return true;
 }
 
-bool RawInputDevice::RawInputInfo::QueryInfo(HANDLE rawInputDeviceHandle)
+bool RawInputDevice::RawInputInfo::QueryInfo(HANDLE handle)
 {
-    DCHECK(IsValidHandle(rawInputDeviceHandle));
+    DCHECK(IsValidHandle(handle));
 
     UINT size = 0;
 
-    UINT result = ::GetRawInputDeviceInfoW(rawInputDeviceHandle, RIDI_DEVICENAME, nullptr, &size);
+    UINT result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICENAME, nullptr, &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -48,7 +48,7 @@ bool RawInputDevice::RawInputInfo::QueryInfo(HANDLE rawInputDeviceHandle)
     DCHECK_EQ(0u, result);
 
     std::wstring buffer(size, 0);
-    result = ::GetRawInputDeviceInfoW(rawInputDeviceHandle, RIDI_DEVICENAME, buffer.data(), &size);
+    result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICENAME, buffer.data(), &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -208,10 +208,10 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
     return !m_FriendlyName.empty() || !m_Manufacturer.empty();
 }
 
-bool RawInputDevice::QueryRawDeviceInfo(HANDLE rawInputDeviceHandle, RID_DEVICE_INFO* deviceInfo)
+bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo)
 {
     UINT size = sizeof(RID_DEVICE_INFO);
-    UINT result = ::GetRawInputDeviceInfoW(rawInputDeviceHandle, RIDI_DEVICEINFO, deviceInfo, &size);
+    UINT result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICEINFO, deviceInfo, &size);
 
     if (result == static_cast<UINT>(-1))
     {

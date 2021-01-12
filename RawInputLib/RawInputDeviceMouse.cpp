@@ -108,11 +108,11 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
     return true;
 }
 
-bool RawInputDeviceMouse::MouseInfo::QueryInfo(HANDLE rawInputDeviceHandle)
+bool RawInputDeviceMouse::MouseInfo::QueryInfo(HANDLE handle)
 {
     RID_DEVICE_INFO device_info;
 
-    if (!RawInputDevice::QueryRawDeviceInfo(rawInputDeviceHandle, &device_info))
+    if (!RawInputDevice::QueryRawDeviceInfo(handle, &device_info))
         return false;
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEMOUSE));

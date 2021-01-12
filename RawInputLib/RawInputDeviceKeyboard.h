@@ -18,7 +18,7 @@ protected:
 private:
     struct KeyboardInfo
     {
-        bool QueryInfo(HANDLE rawInputDeviceHandle);
+        bool QueryInfo(HANDLE handle);
 
         uint16_t Type = 0;
         uint16_t SubType = 0;

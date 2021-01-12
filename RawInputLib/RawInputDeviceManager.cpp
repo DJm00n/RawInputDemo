@@ -13,14 +13,14 @@ RawInputDeviceManager::RawInputDeviceManager()
 
 }
 
-void RawInputDeviceManager::Register(HWND hWndTarget)
+void RawInputDeviceManager::Register(HWND hWnd)
 {
     RAWINPUTDEVICE rid[1];
 
     rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
     rid[0].usUsage = 0;
     rid[0].dwFlags = RIDEV_PAGEONLY | RIDEV_DEVNOTIFY | RIDEV_INPUTSINK;
-    rid[0].hwndTarget = hWndTarget;
+    rid[0].hwndTarget = hWnd;
 
     if (!RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE)))
     {
@@ -108,10 +108,14 @@ void RawInputDeviceManager::EnumerateDevices()
     }
 }
 
-void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWINPUT hRawInput)
+void RawInputDeviceManager::OnInput(HWND /*hWnd*/, UINT /*rimCode*/, HRAWINPUT rawInputHandle)
 {
+    // rimCode could be:
+    // RIM_INPUT - foreground input
+    // RIM_INPUTSINK - background input
+
     UINT size = 0;
-    UINT result = GetRawInputData(hRawInput, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+    UINT result = GetRawInputData(rawInputHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1))
     {
@@ -123,7 +127,7 @@ void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWIN
     auto buffer = std::make_unique<uint8_t[]>(size);
     RAWINPUT* input = reinterpret_cast<RAWINPUT*>(buffer.get());
 
-    result = GetRawInputData(hRawInput, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
+    result = GetRawInputData(rawInputHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1)) {
         //PLOG(ERROR) << "GetRawInputData() failed";
@@ -145,27 +149,28 @@ void RawInputDeviceManager::OnInput(HWND /*hWndInput*/, UINT /*rimCode*/, HRAWIN
     }
 }
 
-void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCode, HANDLE hDevice)
+void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWnd*/, UINT gidcCode, HANDLE handle)
 {
     DCHECK(gidcCode == GIDC_ARRIVAL || gidcCode == GIDC_REMOVAL);
-    CHECK_NE(hDevice, nullptr);
+    CHECK_NE(handle, nullptr);
+    CHECK(IsValidHandle(handle));
 
     if (gidcCode == GIDC_ARRIVAL)
     {
-        if (m_Devices.find(hDevice) != m_Devices.end())
+        if (m_Devices.find(handle) != m_Devices.end())
         {
-            DBGPRINT("Device 0x%x already exist", hDevice);
+            DBGPRINT("Device 0x%x already exist", handle);
             return;
         }
 
         RID_DEVICE_INFO info = {};
-        if (!RawInputDevice::QueryRawDeviceInfo(hDevice, &info))
+        if (!RawInputDevice::QueryRawDeviceInfo(handle, &info))
         {
-            DBGPRINT("Cannot get Extended Keyboard info from 0x%x", hDevice);
+            DBGPRINT("Cannot get Extended Keyboard info from 0x%x", handle);
             return;
         }
 
-        auto new_device = CreateRawInputDevice(hDevice, info.dwType);
+        auto new_device = CreateRawInputDevice(handle, info.dwType);
 
         if (!new_device || !new_device->IsValid())
         {
@@ -173,14 +178,14 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWndInput*/, UINT gidcCod
             return;
         }
 
-        m_Devices.emplace(hDevice, std::move(new_device));
+        m_Devices.emplace(handle, std::move(new_device));
     }
     else
     {
-        auto it = m_Devices.find(hDevice);
+        auto it = m_Devices.find(handle);
         if (it == m_Devices.end())
         {
-            DBGPRINT("Device 0x%x not found", hDevice);
+            DBGPRINT("Device 0x%x not found", handle);
             return;
         }
 
