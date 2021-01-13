@@ -78,7 +78,7 @@ void RawInputDeviceManager::EnumerateDevices()
         else
         {
 
-            auto new_device = CreateRawInputDevice(device_handle, device_type);
+            auto new_device = CreateRawInputDevice(device_type, device_handle);
             if (!new_device || !new_device->IsValid())
             {
                 continue;
@@ -108,14 +108,14 @@ void RawInputDeviceManager::EnumerateDevices()
     }
 }
 
-void RawInputDeviceManager::OnInput(HWND /*hWnd*/, UINT /*rimCode*/, HRAWINPUT rawInputHandle)
+void RawInputDeviceManager::OnInput(HWND hWnd, UINT rimCode, HRAWINPUT dataHandle)
 {
-    // rimCode could be:
-    // RIM_INPUT - foreground input
-    // RIM_INPUTSINK - background input
+    CHECK(IsValidHandle(hWnd));
+    DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
+    CHECK(IsValidHandle(dataHandle));
 
     UINT size = 0;
-    UINT result = GetRawInputData(rawInputHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+    UINT result = GetRawInputData(dataHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1))
     {
@@ -127,7 +127,7 @@ void RawInputDeviceManager::OnInput(HWND /*hWnd*/, UINT /*rimCode*/, HRAWINPUT r
     auto buffer = std::make_unique<uint8_t[]>(size);
     RAWINPUT* input = reinterpret_cast<RAWINPUT*>(buffer.get());
 
-    result = GetRawInputData(rawInputHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
+    result = GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
     if (result == static_cast<UINT>(-1)) {
         //PLOG(ERROR) << "GetRawInputData() failed";
@@ -149,10 +149,10 @@ void RawInputDeviceManager::OnInput(HWND /*hWnd*/, UINT /*rimCode*/, HRAWINPUT r
     }
 }
 
-void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWnd*/, UINT gidcCode, HANDLE handle)
+void RawInputDeviceManager::OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle)
 {
+    CHECK(IsValidHandle(hWnd));
     DCHECK(gidcCode == GIDC_ARRIVAL || gidcCode == GIDC_REMOVAL);
-    CHECK_NE(handle, nullptr);
     CHECK(IsValidHandle(handle));
 
     if (gidcCode == GIDC_ARRIVAL)
@@ -164,13 +164,17 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWnd*/, UINT gidcCode, HA
         }
 
         RID_DEVICE_INFO info = {};
-        if (!RawInputDevice::QueryRawDeviceInfo(handle, &info))
+        UINT size = sizeof(info);
+        UINT result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICEINFO, &info, &size);
+
+        if (result == static_cast<UINT>(-1))
         {
-            DBGPRINT("Cannot get Extended Keyboard info from 0x%x", handle);
+            DBGPRINT("GetRawInputDeviceInfo() failed for 0x%x handle", handle);
             return;
         }
+        DCHECK_EQ(size, result);
 
-        auto new_device = CreateRawInputDevice(handle, info.dwType);
+        auto new_device = CreateRawInputDevice(info.dwType, handle);
 
         if (!new_device || !new_device->IsValid())
         {
@@ -193,16 +197,16 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND /*hWnd*/, UINT gidcCode, HA
     }
 }
 
-std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(HANDLE handle, DWORD deviceType)
+std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
 {
     switch (deviceType)
     {
     case RIM_TYPEMOUSE:
-        return std::make_unique<RawInputDeviceMouse>(handle);
+        return RawInputDeviceFactory<RawInputDeviceMouse>().Create(handle);
     case RIM_TYPEKEYBOARD:
-        return std::make_unique<RawInputDeviceKeyboard>(handle);
+        return RawInputDeviceFactory<RawInputDeviceKeyboard>().Create(handle);
     case RIM_TYPEHID:
-        return std::make_unique<RawInputDeviceHid>(handle);
+        return RawInputDeviceFactory<RawInputDeviceHid>().Create(handle);
     }
 
     DBGPRINT("Unknown device type %d.", deviceType);

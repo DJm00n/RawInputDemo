@@ -95,14 +95,14 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
 
     if (!m_MouseInfo.QueryInfo(m_Handle))
     {
-        DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_RawInput.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_RawInputInfo.m_InterfaceName.c_str());
         return false;
     }
 
-    /*if (IsValidHandle(m_RawInput.m_InterfaceHandle.get()))
+    /*if (IsValidHandle(m_RawInputInfo.m_InterfaceHandle.get()))
     {
         PHIDP_PREPARSED_DATA pp_data = NULL;
-        auto res = HidD_GetPreparsedData(m_RawInput.m_InterfaceHandle.get(), &pp_data);
+        auto res = HidD_GetPreparsedData(m_RawInputInfo.m_InterfaceHandle.get(), &pp_data);
     }*/
 
     return true;

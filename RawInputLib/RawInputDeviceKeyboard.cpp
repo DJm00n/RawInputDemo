@@ -94,27 +94,27 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
 
     if (!m_KeyboardInfo.QueryInfo(m_Handle))
     {
-        DBGPRINT("Cannot get Raw Input Keyboard info from: %s", m_RawInput.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Raw Input Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
         return false;
     }
 
     // optional HID device info
-    if (!m_ExtendedKeyboardInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
+    if (!m_ExtendedKeyboardInfo.QueryInfo(m_RawInputInfo.m_InterfaceHandle))
     {
-        //DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInput.m_InterfaceName.c_str());
+        //DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
     }
 
     return true;
 }
 
-bool RawInputDeviceKeyboard::KeyboardInfo::QueryInfo(HANDLE rawInputDeviceHandle)
+bool RawInputDeviceKeyboard::KeyboardInfo::QueryInfo(HANDLE handle)
 {
     // https://docs.microsoft.com/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_attributes
     // https://docs.microsoft.com/windows/win32/api/winuser/ns-winuser-rid_device_info_keyboard
 
     RID_DEVICE_INFO device_info;
 
-    if (!RawInputDevice::QueryRawDeviceInfo(rawInputDeviceHandle, &device_info))
+    if (!RawInputDevice::QueryRawDeviceInfo(handle, &device_info))
         return false;
 
     DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEKEYBOARD));

@@ -4,19 +4,24 @@
 
 #include <hidsdi.h>
 
+class RawInputDeviceManager;
+
 class RawInputDeviceHid : public RawInputDevice
 {
-public:
+    friend class RawInputDeviceFactory<RawInputDeviceHid>;
+
     static constexpr size_t kAxesLengthCap = 16;
     static constexpr size_t kButtonsLengthCap = 32;
 
-    RawInputDeviceHid(HANDLE handle);
+public:
     ~RawInputDeviceHid();
 
-    uint16_t GetUsagePage() const { return static_cast<uint16_t>(m_HidInfo.usUsagePage); }
-    uint16_t GetUsageId() const { return static_cast<uint16_t>(m_HidInfo.usUsage); }
+    uint16_t GetUsagePage() const { return static_cast<uint16_t>(m_HidDInfo.usUsagePage); }
+    uint16_t GetUsageId() const { return static_cast<uint16_t>(m_HidDInfo.usUsage); }
 
 protected:
+    RawInputDeviceHid(HANDLE handle);
+
     void OnInput(const RAWINPUT* input) override;
 
     bool QueryDeviceInfo() override;
@@ -38,7 +43,7 @@ private:
     };
 
 private:
-    RID_DEVICE_INFO_HID m_HidInfo = {};
+    RID_DEVICE_INFO_HID m_HidDInfo = {};
 
     size_t m_ButtonsLength = 0;
     bool m_Buttons[kButtonsLengthCap];

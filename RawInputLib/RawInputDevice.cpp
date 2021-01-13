@@ -18,16 +18,16 @@ RawInputDevice::~RawInputDevice() = default;
 
 bool RawInputDevice::QueryDeviceInfo()
 {
-    if (!m_RawInput.QueryInfo(m_Handle))
+    if (!m_RawInputInfo.QueryInfo(m_Handle))
         return false;
 
-    if (!m_DeviceNodeInfo.QueryInfo(m_RawInput.m_InterfaceName))
+    if (!m_DeviceNodeInfo.QueryInfo(m_RawInputInfo.m_InterfaceName))
         return false;
 
     // optional HID device info
-    if (!m_HidInfo.QueryInfo(m_RawInput.m_InterfaceHandle))
+    if (!m_HidDInfo.QueryInfo(m_RawInputInfo.m_InterfaceHandle))
     {
-        //DBGPRINT("Cannot get optional HID info from '%s' interface.", m_RawInput.m_InterfaceName.c_str());
+        //DBGPRINT("Cannot get optional HID info from '%s' interface.", m_RawInputInfo.m_InterfaceName.c_str());
     }
 
     return true;
@@ -77,20 +77,20 @@ bool RawInputDevice::RawInputInfo::QueryInfo(HANDLE handle)
     return !m_InterfaceName.empty() && IsValidHandle(m_InterfaceHandle.get());
 }
 
-bool RawInputDevice::HIDInfo::QueryInfo(const ScopedHandle& interfaceHandle)
+bool RawInputDevice::HidDInfo::QueryInfo(const ScopedHandle& interfaceHandle)
 {
     DCHECK(IsValidHandle(interfaceHandle.get()));
 
     std::wstring buffer;
-    buffer.resize(RawInputDevice::kIdLengthCap);
+    buffer.resize(128);
 
-    if (::HidD_GetManufacturerString(interfaceHandle.get(), buffer.data(), RawInputDevice::kIdLengthCap))
+    if (::HidD_GetManufacturerString(interfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
         m_ManufacturerString = utf8::narrow(buffer);
 
-    if (::HidD_GetProductString(interfaceHandle.get(), buffer.data(), RawInputDevice::kIdLengthCap))
+    if (::HidD_GetProductString(interfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
         m_ProductString = utf8::narrow(buffer);
 
-    if (::HidD_GetSerialNumberString(interfaceHandle.get(), &buffer.front(), RawInputDevice::kIdLengthCap))
+    if (::HidD_GetSerialNumberString(interfaceHandle.get(), &buffer.front(), static_cast<ULONG>(buffer.size())))
         m_SerialNumberString = utf8::narrow(buffer);
 
     HIDD_ATTRIBUTES attrib;
@@ -203,7 +203,7 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
     m_DeviceClass = utf8::narrow(PropertyDataToString(GetDevNodeProperty(devInst, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING)));
 
     // TODO extract VID/PID from hardwareId
-    //auto hardwareIds = PropertyDataToStringList(GetDevNodeProperty(devInst, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
+    auto hardwareIds = PropertyDataToStringList(GetDevNodeProperty(devInst, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
 
     return !m_FriendlyName.empty() || !m_Manufacturer.empty();
 }
@@ -215,7 +215,7 @@ bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceIn
 
     if (result == static_cast<UINT>(-1))
     {
-        //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
+        DBGPRINT("GetRawInputDeviceInfo() failed for 0x%x handle", handle);
         return false;
     }
     DCHECK_EQ(size, result);

@@ -4,18 +4,20 @@
 
 class RawInputDeviceKeyboard : public RawInputDevice
 {
+    friend class RawInputDeviceFactory<RawInputDeviceKeyboard>;
+
 public:
-    RawInputDeviceKeyboard(HANDLE handle);
     ~RawInputDeviceKeyboard();
 
 protected:
+    RawInputDeviceKeyboard(HANDLE handle);
+
     void OnInput(const RAWINPUT* input) override;
 
     bool QueryDeviceInfo();
 
     bool QueryKeyboardInfo();
 
-private:
     struct KeyboardInfo
     {
         bool QueryInfo(HANDLE handle);

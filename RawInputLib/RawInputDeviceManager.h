@@ -17,11 +17,11 @@ public:
 
     void EnumerateDevices();
 
-    void OnInput(HWND hWnd, UINT rimCode, HRAWINPUT rawInputHandle);
+    void OnInput(HWND hWnd, UINT rimCode, HRAWINPUT dataHandle);
     void OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle);
 
 private:
-    static std::unique_ptr<RawInputDevice> CreateRawInputDevice(HANDLE handle, DWORD deviceType);
+    std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE handle) const;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };

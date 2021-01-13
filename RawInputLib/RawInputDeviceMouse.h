@@ -4,11 +4,14 @@
 
 class RawInputDeviceMouse : public RawInputDevice
 {
+    friend class RawInputDeviceFactory<RawInputDeviceMouse>;
+
 public:
-    RawInputDeviceMouse(HANDLE handle);
     ~RawInputDeviceMouse();
 
 protected:
+    RawInputDeviceMouse(HANDLE handle);
+
     void OnInput(const RAWINPUT* input) override;
 
     bool QueryDeviceInfo();

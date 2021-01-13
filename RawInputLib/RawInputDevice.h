@@ -7,10 +7,9 @@
 
 class RawInputDevice
 {
-public:
-    static constexpr size_t kIdLengthCap = 128;
+    friend class RawInputDeviceManager;
 
-    RawInputDevice(HANDLE handle);
+public:
     virtual ~RawInputDevice() = 0;
 
     RawInputDevice(RawInputDevice&) = delete;
@@ -18,16 +17,16 @@ public:
 
     bool IsValid() { return m_IsValid; }
 
-    std::string GetInterfacePath() const { return m_RawInput.m_InterfaceName; }
+    std::string GetInterfacePath() const { return m_RawInputInfo.m_InterfaceName; }
 
-    std::string GetManufacturerString() const { return !m_HidInfo.m_ManufacturerString.empty() ? m_HidInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
-    std::string GetProductString() const { return !m_HidInfo.m_ProductString.empty() ? m_HidInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
-    uint16_t GetVendorId() const { return m_HidInfo.m_VendorId; }
-    uint16_t GetProductId() const { return m_HidInfo.m_ProductId; }
-    uint16_t GetVersionNumber() const { return m_HidInfo.m_VersionNumber; }
+    std::string GetManufacturerString() const { return !m_HidDInfo.m_ManufacturerString.empty() ? m_HidDInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
+    std::string GetProductString() const { return !m_HidDInfo.m_ProductString.empty() ? m_HidDInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
+    uint16_t GetVendorId() const { return m_HidDInfo.m_VendorId; }
+    uint16_t GetProductId() const { return m_HidDInfo.m_ProductId; }
+    uint16_t GetVersionNumber() const { return m_HidDInfo.m_VersionNumber; }
 
 protected:
-    friend class RawInputDeviceManager;
+    RawInputDevice(HANDLE handle);
 
     virtual void OnInput(const RAWINPUT* input) = 0;
 
@@ -44,9 +43,9 @@ protected:
 
         std::string m_InterfaceName;
         ScopedHandle m_InterfaceHandle;
-    } m_RawInput;
+    } m_RawInputInfo;
 
-    struct HIDInfo
+    struct HidDInfo
     {
         bool QueryInfo(const ScopedHandle& interfaceHandle);
 
@@ -56,7 +55,7 @@ protected:
         uint16_t m_VendorId = 0;
         uint16_t m_ProductId = 0;
         uint16_t m_VersionNumber = 0;
-    } m_HidInfo;
+    } m_HidDInfo;
 
     struct DeviceNodeInfo
     {
@@ -70,4 +69,17 @@ protected:
     } m_DeviceNodeInfo;
 
     bool m_IsValid;
+};
+
+template<typename T> class RawInputDeviceFactory
+{
+    friend class RawInputDeviceManager;
+
+    RawInputDeviceFactory() { }
+
+    // TODO make it variadic template
+    std::unique_ptr<RawInputDevice> Create(HANDLE handle)
+    {
+        return std::unique_ptr<T>(new T { handle });
+    }
 };
