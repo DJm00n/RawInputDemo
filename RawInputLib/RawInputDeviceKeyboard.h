@@ -14,9 +14,7 @@ protected:
 
     void OnInput(const RAWINPUT* input) override;
 
-    bool QueryDeviceInfo();
-
-    bool QueryKeyboardInfo();
+    bool QueryDeviceInfo() override;
 
     struct KeyboardInfo
     {

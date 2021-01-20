@@ -21,6 +21,7 @@ public:
 
     std::string GetManufacturerString() const { return !m_HidDInfo.m_ManufacturerString.empty() ? m_HidDInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
     std::string GetProductString() const { return !m_HidDInfo.m_ProductString.empty() ? m_HidDInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
+    bool IsHidDevice() const { return m_DeviceNodeInfo.m_IsHidDevice; }
     uint16_t GetVendorId() const { return m_HidDInfo.m_VendorId; }
     uint16_t GetProductId() const { return m_HidDInfo.m_ProductId; }
     uint16_t GetVersionNumber() const { return m_HidDInfo.m_VersionNumber; }
@@ -61,11 +62,13 @@ protected:
     {
         bool QueryInfo(const std::string& interfaceName);
 
-        std::string m_InstanceId;
+        std::string m_DeviceInstanceId;
         std::string m_Manufacturer;
         std::string m_FriendlyName;
         std::string m_DeviceService;
         std::string m_DeviceClass;
+        std::vector<std::string> m_DeviceHardwareIds;
+        bool m_IsHidDevice = false;
     } m_DeviceNodeInfo;
 
     bool m_IsValid;

@@ -14,7 +14,7 @@ protected:
 
     void OnInput(const RAWINPUT* input) override;
 
-    bool QueryDeviceInfo();
+    bool QueryDeviceInfo() override;
 
 private:
     struct MouseInfo

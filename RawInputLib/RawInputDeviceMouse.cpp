@@ -12,7 +12,7 @@ RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    DBGPRINT("New Mouse device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, HID: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
 }
 
 RawInputDeviceMouse::~RawInputDeviceMouse()
@@ -40,14 +40,14 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
         int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
         int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
 
-        DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
+        //DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
     }
     else if (rawMouse.lLastX != 0 && rawMouse.lLastY != 0)
     {
         int relativeX = rawMouse.lLastX;
         int relativeY = rawMouse.lLastY;
 
-        DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
+        //DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
     }
 
     if ((rawMouse.usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||
@@ -79,7 +79,7 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
                 scrollDelta *= scrollLines;
         }
 
-        DBGPRINT("Wheel Scroll wheelDelta=%f, numTicks=%f, scrollDelta=%f, isHorizontalScroll=%d, isScrollByPage=%d\n", wheelDelta, numTicks, scrollDelta, isHorizontalScroll, isScrollByPage);
+        //DBGPRINT("Wheel Scroll wheelDelta=%f, numTicks=%f, scrollDelta=%f, isHorizontalScroll=%d, isScrollByPage=%d\n", wheelDelta, numTicks, scrollDelta, isHorizontalScroll, isScrollByPage);
     }
 
     if ((rawMouse.usButtonFlags & RI_MOUSE_BUTTON_1_DOWN) != 0)

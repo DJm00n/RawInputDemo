@@ -16,8 +16,8 @@ class RawInputDeviceHid : public RawInputDevice
 public:
     ~RawInputDeviceHid();
 
-    uint16_t GetUsagePage() const { return static_cast<uint16_t>(m_HidDInfo.usUsagePage); }
-    uint16_t GetUsageId() const { return static_cast<uint16_t>(m_HidDInfo.usUsage); }
+    uint16_t GetUsagePage() const { return m_UsagePage; }
+    uint16_t GetUsageId() const { return m_UsageId; }
 
 protected:
     RawInputDeviceHid(HANDLE handle);
@@ -26,7 +26,6 @@ protected:
 
     bool QueryDeviceInfo() override;
 
-    bool QueryHidInfo();
     bool QueryDeviceCapabilities();
     void QueryButtonCapabilities(uint16_t button_count);
     void QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool>* button_indices_used);
@@ -43,7 +42,8 @@ private:
     };
 
 private:
-    RID_DEVICE_INFO_HID m_HidDInfo = {};
+    uint16_t m_UsagePage = 0;
+    uint16_t m_UsageId = 0;
 
     size_t m_ButtonsLength = 0;
     bool m_Buttons[kButtonsLengthCap];

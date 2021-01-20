@@ -18,7 +18,7 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -36,11 +36,6 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
-    // Fetch HID properties (RID_DEVICE_INFO_HID) for this device. This includes
-    // |m_VendorId|, |m_ProductId|, |m_VersionNumber|, and |usage_|.
-    if (!QueryHidInfo())
-        return false;
-
     // We can now use the name to query the OS for a file handle that is used to
     // read the product string from the device. If the OS does not return a valid
     // handle this device is invalid.
@@ -56,22 +51,6 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     // Gamepads must have at least one button or axis.
     //if (m_ButtonsLength == 0 && m_AxesLength == 0)
     //    return false;
-
-    return true;
-}
-
-bool RawInputDeviceHid::QueryHidInfo()
-{
-    RID_DEVICE_INFO device_info;
-
-    if (!QueryRawDeviceInfo(m_Handle, &device_info))
-        return false;
-
-    DCHECK_EQ(device_info.dwType, static_cast<DWORD>(RIM_TYPEHID));
-
-    std::memcpy(&m_HidDInfo, &device_info.hid, sizeof(m_HidDInfo));
-
-    // TODO https://github.com/Microsoft/Windows-driver-samples/tree/master/hid/hclient
 
     return true;
 }
@@ -101,6 +80,9 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     HIDP_CAPS caps;
     NTSTATUS status = HidP_GetCaps(m_PreparsedData, &caps);
     DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
+
+    m_UsagePage = caps.UsagePage;
+    m_UsageId = caps.Usage;
 
     if (caps.NumberInputButtonCaps > 0)
         QueryButtonCapabilities(caps.NumberInputButtonCaps);

@@ -8,6 +8,20 @@
 #include "RawInputDeviceKeyboard.h"
 #include "RawInputDeviceHid.h"
 
+namespace
+{
+    void DumpInfo(const RawInputDevice* device)
+    {
+        //DBGPRINT("Interface path: %s", device->GetInterfacePath().c_str());
+        //DBGPRINT("Manufacturer String: %s", device->GetManufacturerString().c_str());
+        //DBGPRINT("Product String: %s", device->GetProductString().c_str());
+        //DBGPRINT("IsHidDevice: %d", device->IsHidDevice());
+        //DBGPRINT("VID/PID: [%04X:%04X]", device->GetVendorId(), device->GetProductId());
+        //DBGPRINT("GetProductId: %d", );
+        //DBGPRINT("GetVersionNumber: %d", device->GetVersionNumber());
+    }
+}
+
 RawInputDeviceManager::RawInputDeviceManager()
 {
 
@@ -81,6 +95,7 @@ void RawInputDeviceManager::EnumerateDevices()
             auto new_device = CreateRawInputDevice(device_type, device_handle);
             if (!new_device || !new_device->IsValid())
             {
+                DBGPRINT("Invalid device: '%d'", device_handle);
                 continue;
             }
 
@@ -88,6 +103,7 @@ void RawInputDeviceManager::EnumerateDevices()
             device = emplace_result.first->second.get();
 
             // TODO LOG
+            DumpInfo(device);
         }
 
         enumerated_device_handles.insert(device_handle);
@@ -181,6 +197,9 @@ void RawInputDeviceManager::OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE
             DBGPRINT("Error while creating device of type %d", info.dwType);
             return;
         }
+
+        // TODO LOG
+        DumpInfo(new_device.get());
 
         m_Devices.emplace(handle, std::move(new_device));
     }

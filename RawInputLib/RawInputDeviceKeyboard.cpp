@@ -13,7 +13,7 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    DBGPRINT("New Keyboard device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, HID: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
 }
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
@@ -83,7 +83,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     for (int i = 0; i < ret; ++i)
     {
         std::string utf8char = utf8::narrow(&uniChars[i], 1);
-        DBGPRINT("Keyboard Char=%s\n", utf8char.c_str());
+        //DBGPRINT("Keyboard Char=%s\n", utf8char.c_str());
     }
 }
 
@@ -98,10 +98,12 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
         return false;
     }
 
-    // optional HID device info
-    if (!m_ExtendedKeyboardInfo.QueryInfo(m_RawInputInfo.m_InterfaceHandle))
+    // Seems only HID keyboard does support this
+    if (IsHidDevice() && !m_ExtendedKeyboardInfo.QueryInfo(m_RawInputInfo.m_InterfaceHandle))
     {
-        //DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
+        return false;
+
     }
 
     return true;
