@@ -175,12 +175,15 @@ namespace
         return std::wstring(reinterpret_cast<const wchar_t*>(propertyData.data()), propertyData.size() / sizeof(wchar_t));
     }
 
-    std::string PropertyDataToString(const std::vector<uint8_t>& propertyData)
+    template<> std::string PropertyDataCast(const std::vector<uint8_t>& propertyData)
     {
+        if (propertyData.empty())
+            return {};
+
         return utf8::narrow(PropertyDataCast<std::wstring>(propertyData));
     }
 
-    std::vector<std::string> PropertyDataToStringList(const std::vector<uint8_t>& propertyData)
+    template<> std::vector<std::string> PropertyDataCast(const std::vector<uint8_t>& propertyData)
     {
         std::wstring strList(PropertyDataCast<std::wstring>(propertyData));
 
@@ -207,9 +210,12 @@ namespace
 
         DCHECK(cr == CR_SUCCESS);
 
-        std::vector<std::string> interfaces = PropertyDataToStringList(listData);
+        auto interfaces = PropertyDataCast<std::vector<std::string>>(listData);
 
-        return !interfaces.empty() ? interfaces.front() : std::string();
+        if (interfaces.empty())
+            return {};
+
+        return interfaces.front();
     }
 
     std::string FindParentDeviceInterface(DEVINST devInst, const GUID* intefaceGuid)
@@ -236,7 +242,7 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
 {
     DCHECK(!interfaceName.empty());
 
-    m_DeviceInstanceId = PropertyDataToString(GetDeviceInterfaceProperty(utf8::widen(interfaceName), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    m_DeviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(utf8::widen(interfaceName), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
 
     DEVINST deviceInstanceHandle;
     CONFIGRET cr = ::CM_Locate_DevNodeW(&deviceInstanceHandle, utf8::widen(m_DeviceInstanceId).data(), CM_LOCATE_DEVNODE_NORMAL);
@@ -244,14 +250,14 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
     if (cr != CR_SUCCESS)
         return false;
 
-    m_Manufacturer = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
-    m_FriendlyName = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
-    m_DeviceService = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Service, DEVPROP_TYPE_STRING));
-    m_DeviceClass = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
+    m_Manufacturer = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
+    m_FriendlyName = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
+    m_DeviceService = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Service, DEVPROP_TYPE_STRING));
+    m_DeviceClass = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
 
 
     // TODO extract VID/PID from hardwareId
-    m_DeviceHardwareIds = PropertyDataToStringList(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
+    m_DeviceHardwareIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
 
     GUID hid_guid;
     HidD_GetHidGuid(&hid_guid);
@@ -264,7 +270,7 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
         m_ParentUsbHubInterface = FindParentDeviceInterface(deviceInstanceHandle, &GUID_DEVINTERFACE_USB_HUB);
     }
 
-    // TODO how to get
+    // TODO how to get USB_DEVICE_DESCRIPTOR
     // 1. call IOCTL_USB_GET_HUB_INFORMATION_EX on usb hub to get USB_HUB_INFORMATION_EX.HighestPortNumber
     // 2. for each port 1..HighestPortNumber call IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME
     // 3. compare with our device's DEVPKEY_Device_Driver to find needed portnumber
