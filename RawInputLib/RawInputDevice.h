@@ -69,6 +69,9 @@ protected:
         std::string m_DeviceClass;
         std::vector<std::string> m_DeviceHardwareIds;
         bool m_IsHidDevice = false;
+
+        std::string m_ParentUsbDeviceInterface;
+        std::string m_ParentUsbHubInterface;
     } m_DeviceNodeInfo;
 
     bool m_IsValid;

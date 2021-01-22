@@ -9,6 +9,8 @@
 #include <Cfgmgr32.h>
 #include <Devpkey.h>
 
+#include <Usbiodef.h> // USB GUIDs
+
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)
     , m_IsValid(false)
@@ -157,14 +159,30 @@ namespace
         return std::move(propertyData);
     }
 
+    template<typename T> T PropertyDataCast(const std::vector<uint8_t>& propertyData)
+    {
+        if (propertyData.empty())
+            return {};
+
+        return *const_cast<T*>(reinterpret_cast<const T*>(propertyData.data()));
+    }
+
+    template<> std::wstring PropertyDataCast(const std::vector<uint8_t>& propertyData)
+    {
+        if (propertyData.empty())
+            return {};
+
+        return std::wstring(reinterpret_cast<const wchar_t*>(propertyData.data()), propertyData.size() / sizeof(wchar_t));
+    }
+
     std::string PropertyDataToString(const std::vector<uint8_t>& propertyData)
     {
-        return utf8::narrow({ (wchar_t*)propertyData.data(), propertyData.size() / sizeof(wchar_t) });
+        return utf8::narrow(PropertyDataCast<std::wstring>(propertyData));
     }
 
     std::vector<std::string> PropertyDataToStringList(const std::vector<uint8_t>& propertyData)
     {
-        std::wstring strList = { (wchar_t*)propertyData.data(), propertyData.size() / sizeof(wchar_t) };
+        std::wstring strList(PropertyDataCast<std::wstring>(propertyData));
 
         std::vector<std::string> outList;
         for (size_t i = 0; i != std::wstring::npos && i < strList.size(); i = strList.find(L'\0', i), ++i)
@@ -177,19 +195,40 @@ namespace
         return std::move(outList);
     }
 
-    std::vector<std::string> GetDeviceInterfaceList(const std::wstring& deviceInstanceId, GUID* intefaceGuid)
+    std::string GetDeviceInterface(const std::wstring& deviceInstanceId, const GUID* intefaceGuid)
     {
         ULONG listSize;
-        CONFIGRET cr = CM_Get_Device_Interface_List_Size(&listSize, intefaceGuid, (WCHAR*)deviceInstanceId.data(), CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        CONFIGRET cr = CM_Get_Device_Interface_List_Size(&listSize, (LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
 
         DCHECK(cr == CR_SUCCESS);
 
         std::vector<uint8_t> listData(listSize * sizeof(WCHAR), 0);
-        cr = CM_Get_Device_Interface_ListW(intefaceGuid, (WCHAR*)deviceInstanceId.data(), (PZZWSTR)listData.data(), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        cr = CM_Get_Device_Interface_ListW((LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), (PZZWSTR)listData.data(), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
 
         DCHECK(cr == CR_SUCCESS);
 
-        return PropertyDataToStringList(listData);
+        std::vector<std::string> interfaces = PropertyDataToStringList(listData);
+
+        return !interfaces.empty() ? interfaces.front() : std::string();
+    }
+
+    std::string FindParentDeviceInterface(DEVINST devInst, const GUID* intefaceGuid)
+    {
+        std::string outInterface;
+        DEVINST parentDevInst;
+
+        while (CM_Get_Parent(&parentDevInst, devInst, 0) == CR_SUCCESS)
+        {
+            std::wstring instanceId = PropertyDataCast<std::wstring>(GetDevNodeProperty(parentDevInst, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+
+            outInterface = GetDeviceInterface(instanceId, intefaceGuid);
+            if (!outInterface.empty())
+                break;
+
+            devInst = parentDevInst;
+        };
+
+        return std::move(outInterface);
     }
 }
 
@@ -210,13 +249,26 @@ bool RawInputDevice::DeviceNodeInfo::QueryInfo(const std::string& interfaceName)
     m_DeviceService = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Service, DEVPROP_TYPE_STRING));
     m_DeviceClass = PropertyDataToString(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
 
+
     // TODO extract VID/PID from hardwareId
     m_DeviceHardwareIds = PropertyDataToStringList(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
 
     GUID hid_guid;
     HidD_GetHidGuid(&hid_guid);
 
-    m_IsHidDevice = !GetDeviceInterfaceList(utf8::widen(m_DeviceInstanceId).data(), &hid_guid).empty();
+    m_IsHidDevice = !GetDeviceInterface(utf8::widen(m_DeviceInstanceId).data(), &hid_guid).empty();
+
+    if (m_IsHidDevice)
+    {
+        m_ParentUsbDeviceInterface = FindParentDeviceInterface(deviceInstanceHandle, &GUID_DEVINTERFACE_USB_DEVICE);
+        m_ParentUsbHubInterface = FindParentDeviceInterface(deviceInstanceHandle, &GUID_DEVINTERFACE_USB_HUB);
+    }
+
+    // TODO how to get
+    // 1. call IOCTL_USB_GET_HUB_INFORMATION_EX on usb hub to get USB_HUB_INFORMATION_EX.HighestPortNumber
+    // 2. for each port 1..HighestPortNumber call IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME
+    // 3. compare with our device's DEVPKEY_Device_Driver to find needed portnumber
+    // 4. call IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX with our portnumber to get USB_NODE_CONNECTION_INFORMATION_EX.DeviceDescriptor of type USB_DEVICE_DESCRIPTOR
 
     return !m_FriendlyName.empty() || !m_Manufacturer.empty();
 }
