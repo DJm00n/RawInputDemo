@@ -28,7 +28,7 @@ namespace utf8
             return string();
 
         string out(nsz, 0);
-        WideCharToMultiByte(CP_UTF8, 0, s, -1, &out[0], nsz, 0, 0);
+        WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), &out[0], nsz, 0, 0);
         if (!nch)
             out.resize(nsz - 1); //output is null-terminated
         return out;
@@ -67,7 +67,7 @@ namespace utf8
             return wstring();
 
         wstring out(wsz, 0);
-        MultiByteToWideChar(CP_UTF8, 0, s, -1, &out[0], wsz);
+        MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), &out[0], wsz);
         if (!nch)
             out.resize(wsz - 1); //output is null-terminated
         return out;

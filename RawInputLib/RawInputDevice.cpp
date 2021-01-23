@@ -150,19 +150,21 @@ namespace
         if (propertyData.empty())
             return {};
 
-        return utf8::narrow(PropertyDataCast<std::wstring>(propertyData));
+        std::wstring wstr{ PropertyDataCast<std::wstring>(propertyData) };
+
+        return utf8::narrow(wstr.data(), wstr.size());
     }
 
     template<> std::vector<std::string> PropertyDataCast(const std::vector<uint8_t>& propertyData)
     {
-        std::wstring strList(PropertyDataCast<std::wstring>(propertyData));
+        std::string strList(PropertyDataCast<std::string>(propertyData));
 
         std::vector<std::string> outList;
-        for (size_t i = 0; i != std::wstring::npos && i < strList.size(); i = strList.find(L'\0', i), ++i)
+        for (size_t i = 0; i != std::wstring::npos && i < strList.size(); i = strList.find('\0', i), ++i)
         {
-            std::wstring elem(&strList[i]);
+            std::string elem(&strList[i]);
             if (!elem.empty())
-                outList.emplace_back(utf8::narrow(elem));
+                outList.emplace_back(elem);
         }
 
         return std::move(outList);
@@ -176,7 +178,7 @@ namespace
         DCHECK(cr == CR_SUCCESS);
 
         std::vector<uint8_t> listData(listSize * sizeof(WCHAR), 0);
-        cr = CM_Get_Device_Interface_ListW((LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), (PZZWSTR)listData.data(), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        cr = ::CM_Get_Device_Interface_ListW((LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), (PZZWSTR)listData.data(), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
 
         DCHECK(cr == CR_SUCCESS);
 
@@ -210,7 +212,7 @@ bool RawInputDevice::QueryDeviceNodeInfo()
     m_DeviceHardwareIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
 
     GUID hid_guid;
-    HidD_GetHidGuid(&hid_guid);
+    ::HidD_GetHidGuid(&hid_guid);
 
     m_IsHidDevice = !GetDeviceInterface(utf8::widen(m_DeviceInstanceId).data(), &hid_guid).empty();
 
