@@ -64,9 +64,6 @@ protected:
     std::string m_DeviceClass;
     std::vector<std::string> m_DeviceHardwareIds;
 
-    std::string m_ParentUsbDeviceInterface;
-    std::string m_ParentUsbHubInterface;
-
     bool m_IsValid = false;
 };
 

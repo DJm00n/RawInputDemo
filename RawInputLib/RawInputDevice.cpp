@@ -9,8 +9,6 @@
 #include <Cfgmgr32.h>
 #include <Devpkey.h>
 
-#include <Usbiodef.h> // USB GUIDs
-
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)
     , m_IsValid(false)
@@ -189,25 +187,6 @@ namespace
 
         return interfaces.front();
     }
-
-    std::string FindParentDeviceInterface(DEVINST devInst, const GUID* intefaceGuid)
-    {
-        std::string outInterface;
-        DEVINST parentDevInst;
-
-        while (CM_Get_Parent(&parentDevInst, devInst, 0) == CR_SUCCESS)
-        {
-            std::wstring instanceId = PropertyDataCast<std::wstring>(GetDevNodeProperty(parentDevInst, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
-
-            outInterface = GetDeviceInterface(instanceId, intefaceGuid);
-            if (!outInterface.empty())
-                break;
-
-            devInst = parentDevInst;
-        };
-
-        return std::move(outInterface);
-    }
 }
 
 bool RawInputDevice::QueryDeviceNodeInfo()
@@ -234,18 +213,6 @@ bool RawInputDevice::QueryDeviceNodeInfo()
     HidD_GetHidGuid(&hid_guid);
 
     m_IsHidDevice = !GetDeviceInterface(utf8::widen(m_DeviceInstanceId).data(), &hid_guid).empty();
-
-    if (m_IsHidDevice)
-    {
-        m_ParentUsbDeviceInterface = FindParentDeviceInterface(deviceInstanceHandle, &GUID_DEVINTERFACE_USB_DEVICE);
-        m_ParentUsbHubInterface = FindParentDeviceInterface(deviceInstanceHandle, &GUID_DEVINTERFACE_USB_HUB);
-    }
-
-    // TODO how to get USB_DEVICE_DESCRIPTOR
-    // 1. call IOCTL_USB_GET_HUB_INFORMATION_EX on usb hub to get USB_HUB_INFORMATION_EX.HighestPortNumber
-    // 2. for each port 1..HighestPortNumber call IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME
-    // 3. compare with our device's DEVPKEY_Device_Driver to find needed portnumber
-    // 4. call IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX with our portnumber to get USB_NODE_CONNECTION_INFORMATION_EX.DeviceDescriptor of type USB_DEVICE_DESCRIPTOR
 
     return !m_ProductString.empty() || !m_ManufacturerString.empty();
 }
