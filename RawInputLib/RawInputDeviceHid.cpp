@@ -39,7 +39,7 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     // We can now use the name to query the OS for a file handle that is used to
     // read the product string from the device. If the OS does not return a valid
     // handle this device is invalid.
-    if (!IsValidHandle(m_RawInputInfo.m_InterfaceHandle.get()))
+    if (!IsValidHandle(m_InterfaceHandle.get()))
         return false;
 
     // Fetch information about the buttons and axes on this device. This sets

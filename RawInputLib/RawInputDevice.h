@@ -17,14 +17,15 @@ public:
 
     bool IsValid() { return m_IsValid; }
 
-    std::string GetInterfacePath() const { return m_RawInputInfo.m_InterfaceName; }
+    // Device Interface Path. Example: `\\?\HID#VID_203A&PID_FFFC&MI_01#7&2de99099&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}`
+    std::string GetInterfacePath() const { return m_InterfacePath; }
 
-    std::string GetManufacturerString() const { return !m_HidDInfo.m_ManufacturerString.empty() ? m_HidDInfo.m_ManufacturerString : m_DeviceNodeInfo.m_Manufacturer; }
-    std::string GetProductString() const { return !m_HidDInfo.m_ProductString.empty() ? m_HidDInfo.m_ProductString : m_DeviceNodeInfo.m_FriendlyName; }
-    bool IsHidDevice() const { return m_DeviceNodeInfo.m_IsHidDevice; }
-    uint16_t GetVendorId() const { return m_HidDInfo.m_VendorId; }
-    uint16_t GetProductId() const { return m_HidDInfo.m_ProductId; }
-    uint16_t GetVersionNumber() const { return m_HidDInfo.m_VersionNumber; }
+    std::string GetManufacturerString() const { return m_ManufacturerString; }
+    std::string GetProductString() const { return m_ProductString; }
+    bool IsHidDevice() const { return m_IsHidDevice; }
+    uint16_t GetVendorId() const { return m_VendorId; }
+    uint16_t GetProductId() const { return m_ProductId; }
+    uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
 protected:
     RawInputDevice(HANDLE handle);
@@ -33,48 +34,40 @@ protected:
 
     virtual bool QueryDeviceInfo();
 
+    bool QueryRawInputDeviceInfo();
+    bool QueryDeviceNodeInfo();
+    bool QueryHidDeviceInfo();
+
     // (RIDI_DEVICEINFO). nullptr on failure.
     static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
 
+    // Raw input device handle
     HANDLE m_Handle = INVALID_HANDLE_VALUE;
 
-    struct RawInputInfo
-    {
-        bool QueryInfo(HANDLE handle);
+    std::string m_InterfacePath;
+    ScopedHandle m_InterfaceHandle;
 
-        std::string m_InterfaceName;
-        ScopedHandle m_InterfaceHandle;
-    } m_RawInputInfo;
+    bool m_IsReadOnlyInterface = false;
+    bool m_IsHidDevice = false;
 
-    struct HidDInfo
-    {
-        bool QueryInfo(const ScopedHandle& interfaceHandle);
+    // HID device info
+    std::string m_ManufacturerString;
+    std::string m_ProductString;
+    std::string m_SerialNumberString;
+    uint16_t m_VendorId = 0;
+    uint16_t m_ProductId = 0;
+    uint16_t m_VersionNumber = 0;
 
-        std::string m_ManufacturerString;
-        std::string m_ProductString;
-        std::string m_SerialNumberString;
-        uint16_t m_VendorId = 0;
-        uint16_t m_ProductId = 0;
-        uint16_t m_VersionNumber = 0;
-    } m_HidDInfo;
+    // Device node info
+    std::string m_DeviceInstanceId;
+    std::string m_DeviceService;
+    std::string m_DeviceClass;
+    std::vector<std::string> m_DeviceHardwareIds;
 
-    struct DeviceNodeInfo
-    {
-        bool QueryInfo(const std::string& interfaceName);
+    std::string m_ParentUsbDeviceInterface;
+    std::string m_ParentUsbHubInterface;
 
-        std::string m_DeviceInstanceId;
-        std::string m_Manufacturer;
-        std::string m_FriendlyName;
-        std::string m_DeviceService;
-        std::string m_DeviceClass;
-        std::vector<std::string> m_DeviceHardwareIds;
-        bool m_IsHidDevice = false;
-
-        std::string m_ParentUsbDeviceInterface;
-        std::string m_ParentUsbHubInterface;
-    } m_DeviceNodeInfo;
-
-    bool m_IsValid;
+    bool m_IsValid = false;
 };
 
 template<typename T> class RawInputDeviceFactory

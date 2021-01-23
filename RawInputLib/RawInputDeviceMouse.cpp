@@ -95,7 +95,7 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
 
     if (!m_MouseInfo.QueryInfo(m_Handle))
     {
-        DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_RawInputInfo.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_InterfacePath.c_str());
         return false;
     }
 

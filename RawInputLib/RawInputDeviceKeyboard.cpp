@@ -94,14 +94,14 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
 
     if (!m_KeyboardInfo.QueryInfo(m_Handle))
     {
-        DBGPRINT("Cannot get Raw Input Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Raw Input Keyboard info from: %s", m_InterfacePath.c_str());
         return false;
     }
 
     // Seems only HID keyboard does support this
-    if (IsHidDevice() && !m_ExtendedKeyboardInfo.QueryInfo(m_RawInputInfo.m_InterfaceHandle))
+    if (IsHidDevice() && !m_ExtendedKeyboardInfo.QueryInfo(m_InterfaceHandle))
     {
-        DBGPRINT("Cannot get Extended Keyboard info from: %s", m_RawInputInfo.m_InterfaceName.c_str());
+        DBGPRINT("Cannot get Extended Keyboard info from: %s", m_InterfacePath.c_str());
         return false;
 
     }
