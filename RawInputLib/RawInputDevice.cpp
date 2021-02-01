@@ -3,11 +3,13 @@
 
 #include "RawInputDevice.h"
 
+#pragma warning(push, 0)
 #include <hidsdi.h> // HidD_* API
 
 #include <initguid.h>
 #include <Cfgmgr32.h>
 #include <Devpkey.h>
+#pragma warning(pop)
 
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)

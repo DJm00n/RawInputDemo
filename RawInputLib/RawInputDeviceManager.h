@@ -21,7 +21,13 @@ public:
     void OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle);
 
 private:
+    void ProcessPendingInput();
+
+    void OnInput(HANDLE handle, const RAWINPUT* input);
+
     std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE handle) const;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
+
+    std::vector<uint8_t> m_InputDataBuffer;
 };

@@ -16,6 +16,9 @@ class RawInputDeviceHid : public RawInputDevice
 public:
     ~RawInputDeviceHid();
 
+    RawInputDeviceHid(RawInputDeviceHid&) = delete;
+    void operator=(RawInputDeviceHid) = delete;
+
     uint16_t GetUsagePage() const { return m_UsagePage; }
     uint16_t GetUsageId() const { return m_UsageId; }
 

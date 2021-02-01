@@ -4,6 +4,8 @@
 
 #pragma once
 
+#pragma warning(push, 0)
+
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
 #define NOMINMAX
 // Windows Header Files
@@ -24,6 +26,8 @@
 
 #include <fmt/format.h>
 #include <iostream>
+
+#pragma warning(pop)
 
 #include "utils.h"
 

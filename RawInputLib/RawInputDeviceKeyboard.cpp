@@ -3,8 +3,10 @@
 
 #include "RawInputDeviceKeyboard.h"
 
+#pragma warning(push, 0)
 #include <winioctl.h>
 #include <ntddkbd.h>
+#pragma warning(pop)
 
 #include <string>
 
@@ -42,7 +44,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         switch (vk)
         {
         case VK_SHIFT:
-            return ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
+            return static_cast<USHORT>(::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
         case VK_CONTROL:
             return e0 ? VK_RCONTROL : VK_LCONTROL;
         case VK_MENU:

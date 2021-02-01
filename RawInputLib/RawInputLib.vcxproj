@@ -88,13 +88,14 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/wd4820 /wd4514 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -104,7 +105,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;Cfgmgr32.lib</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -112,7 +114,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
@@ -121,6 +123,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/wd4820 /wd4514 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -132,7 +135,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;Cfgmgr32.lib</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -140,13 +144,14 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/wd4820 /wd4514 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -156,7 +161,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;Cfgmgr32.lib</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -164,7 +170,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
@@ -173,6 +179,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/wd4820 /wd4514 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -184,7 +191,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;Cfgmgr32.lib</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>

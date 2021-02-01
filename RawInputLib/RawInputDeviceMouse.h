@@ -9,6 +9,9 @@ class RawInputDeviceMouse : public RawInputDevice
 public:
     ~RawInputDeviceMouse();
 
+    RawInputDeviceMouse(RawInputDeviceMouse&) = delete;
+    void operator=(RawInputDeviceMouse) = delete;
+
 protected:
     RawInputDeviceMouse(HANDLE handle);
 

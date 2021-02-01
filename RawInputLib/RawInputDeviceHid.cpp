@@ -9,7 +9,7 @@ namespace
 {
     unsigned long GetBitmask(unsigned short bits)
     {
-        return (1 << bits) - 1;
+        return static_cast<unsigned long>(1 << bits) - 1;
     }
 }
 

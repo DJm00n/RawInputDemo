@@ -9,6 +9,9 @@ class RawInputDeviceKeyboard : public RawInputDevice
 public:
     ~RawInputDeviceKeyboard();
 
+    RawInputDeviceKeyboard(RawInputDeviceKeyboard&) = delete;
+    void operator=(RawInputDeviceKeyboard) = delete;
+
 protected:
     RawInputDeviceKeyboard(HANDLE handle);
 

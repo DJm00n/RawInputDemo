@@ -1,9 +1,11 @@
 #pragma once
 
+#pragma warning(push, 0)
 #include <string>
 #include <vector>
 #include <memory>
 #include <iostream>
+#pragma warning(pop)
 
 // UTF8<=>UTF16 conversion functions
 // recommended at http://utf8everywhere.org/#how.cvt
@@ -38,7 +40,7 @@ struct ScopedHandleDeleter
 typedef std::unique_ptr<void, ScopedHandleDeleter> ScopedHandle;
 
 #ifdef _DEBUG
-#define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, __LINE__, format, __VA_ARGS__)
+#define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);
 #else
 #define DBGPRINT(format, ...);

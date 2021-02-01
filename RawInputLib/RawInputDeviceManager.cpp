@@ -10,7 +10,7 @@
 
 namespace
 {
-    void DumpInfo(const RawInputDevice* device)
+    void DumpInfo(const RawInputDevice* /*device*/)
     {
         //DBGPRINT("Interface path: %s", device->GetInterfacePath().c_str());
         //DBGPRINT("Manufacturer String: %s", device->GetManufacturerString().c_str());
@@ -24,7 +24,6 @@ namespace
 
 RawInputDeviceManager::RawInputDeviceManager()
 {
-
 }
 
 void RawInputDeviceManager::Register(HWND hWnd)
@@ -140,29 +139,80 @@ void RawInputDeviceManager::OnInput(HWND hWnd, UINT rimCode, HRAWINPUT dataHandl
     }
     DCHECK_EQ(0u, result);
 
-    auto buffer = std::make_unique<uint8_t[]>(size);
-    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(buffer.get());
+    // grow buffer if needed
+    if (m_InputDataBuffer.size() < size)
+        m_InputDataBuffer.resize(size);
+
+    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
 
     result = GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
-    if (result == static_cast<UINT>(-1)) {
+    if (result == static_cast<UINT>(-1))
+    {
         //PLOG(ERROR) << "GetRawInputData() failed";
         return;
     }
     DCHECK_EQ(size, result);
 
-    // Notify device about the event
-    if (IsValidHandle(input->header.hDevice))
-    {
-        auto it = m_Devices.find(input->header.hDevice);
-        if (it == m_Devices.end())
-        {
-            DBGPRINT("Device 0x%x not found", input->header.hDevice);
-            return;
-        }
+    OnInput(input->header.hDevice, input);
 
-        it->second->OnInput(input);
+    ProcessPendingInput();
+}
+
+void RawInputDeviceManager::ProcessPendingInput()
+{
+    UINT size = 0;
+    UINT result = GetRawInputBuffer(nullptr, &size, sizeof(RAWINPUTHEADER));
+
+    if (result == static_cast<UINT>(-1))
+    {
+        //PLOG(ERROR) << "GetRawInputBuffer() failed";
+        return;
     }
+    DCHECK_EQ(0u, result);
+
+    // no pending WM_INPUT messages in thread queue
+    if (size == 0)
+        return;
+
+    size *= 16; // up to 16 messages per call
+
+    // grow up buffer if needed
+    if (m_InputDataBuffer.size() < size)
+        m_InputDataBuffer.resize(size);
+
+    while (true)
+    {
+        RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
+
+        result = GetRawInputBuffer(input, &size, sizeof(RAWINPUTHEADER));
+
+        if (result == 0 || result == static_cast<UINT>(-1))
+            break;
+
+        // hack for a undefined QWORD used in NEXTRAWINPUTBLOCK macro
+        using QWORD = __int64;
+
+        for (; result; result--, input = NEXTRAWINPUTBLOCK(input))
+        {
+            OnInput(input->header.hDevice, input);
+        }
+    }
+}
+
+void RawInputDeviceManager::OnInput(HANDLE handle, const RAWINPUT* input)
+{
+    if (!IsValidHandle(handle))
+        return;
+
+    auto it = m_Devices.find(handle);
+    if (it == m_Devices.end())
+    {
+        DBGPRINT("Device 0x%x not found", handle);
+        return;
+    }
+
+    it->second->OnInput(input);
 }
 
 void RawInputDeviceManager::OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle)

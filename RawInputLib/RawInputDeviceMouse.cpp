@@ -32,20 +32,20 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
 
     if ((rawMouse.usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE)
     {
-        bool isVirtualDesktop = (rawMouse.usFlags & MOUSE_VIRTUAL_DESKTOP) == MOUSE_VIRTUAL_DESKTOP;
+        //bool isVirtualDesktop = (rawMouse.usFlags & MOUSE_VIRTUAL_DESKTOP) == MOUSE_VIRTUAL_DESKTOP;
 
-        int width = GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
-        int height = GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
+        //int width = GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
+        //int height = GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
 
-        int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
-        int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
+        //int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
+        //int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
 
         //DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
     }
     else if (rawMouse.lLastX != 0 && rawMouse.lLastY != 0)
     {
-        int relativeX = rawMouse.lLastX;
-        int relativeY = rawMouse.lLastY;
+        //int relativeX = rawMouse.lLastX;
+        //int relativeY = rawMouse.lLastY;
 
         //DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
     }
