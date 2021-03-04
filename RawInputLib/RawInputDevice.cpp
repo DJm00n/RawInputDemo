@@ -92,17 +92,18 @@ bool RawInputDevice::QueryRawInputDeviceInfo()
 
 namespace
 {
-    std::vector<uint8_t> GetDeviceInterfaceProperty(const std::wstring& deviceInterfaceName, const DEVPROPKEY* propertyKey, DEVPROPTYPE expectedPropertyType)
+    std::vector<uint8_t> GetDeviceInterfaceProperty(const std::string& deviceInterfaceName, const DEVPROPKEY* propertyKey, DEVPROPTYPE expectedPropertyType)
     {
-        DEVPROPTYPE propertyType;
+        std::wstring devInterface = utf8::widen(deviceInterfaceName);
+        DEVPROPTYPE propertyType = DEVPROP_TYPE_EMPTY;
         ULONG propertySize = 0;
-        CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(deviceInterfaceName.c_str(), propertyKey, &propertyType, nullptr, &propertySize, 0);
+        CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(devInterface.c_str(), propertyKey, &propertyType, nullptr, &propertySize, 0);
 
         DCHECK_EQ(cr, CR_BUFFER_SMALL);
         DCHECK_EQ(propertyType, expectedPropertyType);
 
         std::vector<uint8_t> propertyData(propertySize, 0);
-        cr = ::CM_Get_Device_Interface_PropertyW(deviceInterfaceName.c_str(), propertyKey, &propertyType, (PBYTE)propertyData.data(), &propertySize, 0);
+        cr = ::CM_Get_Device_Interface_PropertyW(devInterface.c_str(), propertyKey, &propertyType, propertyData.data(), &propertySize, 0);
 
         DCHECK_EQ(cr, CR_SUCCESS);
         DCHECK_EQ(propertyType, expectedPropertyType);
@@ -110,9 +111,20 @@ namespace
         return std::move(propertyData);
     }
 
+    DEVINST OpenDevNode(const std::string& deviceInstanceId)
+    {
+        std::wstring devInstance = utf8::widen(deviceInstanceId);
+        DEVINST devNodeHandle;
+        CONFIGRET cr = ::CM_Locate_DevNodeW(&devNodeHandle, devInstance.data(), CM_LOCATE_DEVNODE_NORMAL);
+
+        DCHECK_EQ(cr, CR_SUCCESS);
+
+        return devNodeHandle;
+    }
+
     std::vector<uint8_t> GetDevNodeProperty(DEVINST devInst, const DEVPROPKEY* propertyKey, DEVPROPTYPE expectedPropertyType)
     {
-        DEVPROPTYPE propertyType;
+        DEVPROPTYPE propertyType = DEVPROP_TYPE_EMPTY;
         ULONG propertySize = 0;
         CONFIGRET cr = ::CM_Get_DevNode_PropertyW(devInst, propertyKey, &propertyType, nullptr, &propertySize, 0);
 
@@ -123,7 +135,7 @@ namespace
         DCHECK_EQ(propertyType, expectedPropertyType);
 
         std::vector<uint8_t> propertyData(propertySize, 0);
-        cr = ::CM_Get_DevNode_PropertyW(devInst, propertyKey, &propertyType, (PBYTE)propertyData.data(), &propertySize, 0);
+        cr = ::CM_Get_DevNode_PropertyW(devInst, propertyKey, &propertyType, propertyData.data(), &propertySize, 0);
 
         DCHECK_EQ(cr, CR_SUCCESS);
         DCHECK_EQ(propertyType, expectedPropertyType);
@@ -144,7 +156,9 @@ namespace
         if (propertyData.empty())
             return {};
 
-        return std::wstring(reinterpret_cast<const wchar_t*>(propertyData.data()), propertyData.size() / sizeof(wchar_t));
+        std::wstring wstr(reinterpret_cast<const std::wstring::value_type*>(propertyData.data()), propertyData.size() / sizeof(std::wstring::value_type));
+
+        return std::move(wstr);
     }
 
     template<> std::string PropertyDataCast(const std::vector<uint8_t>& propertyData)
@@ -152,7 +166,7 @@ namespace
         if (propertyData.empty())
             return {};
 
-        std::wstring wstr{ PropertyDataCast<std::wstring>(propertyData) };
+        std::wstring wstr(PropertyDataCast<std::wstring>(propertyData));
 
         return utf8::narrow(wstr.data(), wstr.size());
     }
@@ -172,15 +186,16 @@ namespace
         return std::move(outList);
     }
 
-    std::string GetDeviceInterface(const std::wstring& deviceInstanceId, const GUID* intefaceGuid)
+    std::string GetDeviceInterface(const std::string& deviceInstanceId, LPGUID intefaceGuid)
     {
+        std::wstring deviceID = utf8::widen(deviceInstanceId);
         ULONG listSize;
-        CONFIGRET cr = CM_Get_Device_Interface_List_Size(&listSize, (LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        CONFIGRET cr = CM_Get_Device_Interface_List_SizeW(&listSize, intefaceGuid, deviceID.data(), CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
 
         DCHECK(cr == CR_SUCCESS);
 
         std::vector<uint8_t> listData(listSize * sizeof(WCHAR), 0);
-        cr = ::CM_Get_Device_Interface_ListW((LPGUID)intefaceGuid, (WCHAR*)deviceInstanceId.data(), (PZZWSTR)listData.data(), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        cr = ::CM_Get_Device_Interface_ListW(intefaceGuid, deviceID.data(), reinterpret_cast<PZZWSTR>(listData.data()), listSize, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
 
         DCHECK(cr == CR_SUCCESS);
 
@@ -197,26 +212,22 @@ bool RawInputDevice::QueryDeviceNodeInfo()
 {
     DCHECK(!m_InterfacePath.empty());
 
-    m_DeviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(utf8::widen(m_InterfacePath), &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    m_DeviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_InterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
 
-    DEVINST deviceInstanceHandle;
-    CONFIGRET cr = ::CM_Locate_DevNodeW(&deviceInstanceHandle, utf8::widen(m_DeviceInstanceId).data(), CM_LOCATE_DEVNODE_NORMAL);
+    DEVINST devNodeHandle = OpenDevNode(m_DeviceInstanceId);
 
-    if (cr != CR_SUCCESS)
-        return false;
-
-    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
-    m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
-    m_DeviceService = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Service, DEVPROP_TYPE_STRING));
-    m_DeviceClass = PropertyDataCast<std::string>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
+    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
+    m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
+    m_DeviceService = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Service, DEVPROP_TYPE_STRING));
+    m_DeviceClass = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
 
     // TODO extract VID/PID/COL from hardwareId
-    m_DeviceHardwareIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(deviceInstanceHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
+    m_DeviceHardwareIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_HardwareIds, DEVPROP_TYPE_STRING_LIST));
 
     GUID hid_guid;
     ::HidD_GetHidGuid(&hid_guid);
 
-    m_IsHidDevice = !GetDeviceInterface(utf8::widen(m_DeviceInstanceId).data(), &hid_guid).empty();
+    m_IsHidDevice = !GetDeviceInterface(m_DeviceInstanceId, &hid_guid).empty();
 
     return !m_ProductString.empty() || !m_ManufacturerString.empty();
 }
