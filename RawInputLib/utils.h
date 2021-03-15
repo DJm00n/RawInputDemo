@@ -43,7 +43,7 @@ typedef std::unique_ptr<void, ScopedHandleDeleter> ScopedHandle;
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);
 #else
-#define DBGPRINT(format, ...);
+#define DBGPRINT(format, ...) (void)0
 #endif
 
 #define CHECK(x) \

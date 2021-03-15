@@ -110,9 +110,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 BOOL WndProc_OnCreate(HWND hWnd, LPCREATESTRUCT /*lpCreateStruct*/)
 {
-    rawDeviceManager.Register(hWnd);
-    rawDeviceManager.EnumerateDevices();
-
     return TRUE;
 }
 
@@ -134,35 +131,7 @@ void WndProc_OnCommand(HWND hWnd, int id, HWND hWndCtl, UINT codeNotify)
 
 void WndProc_OnDestroy(HWND /*hWnd*/)
 {
-    rawDeviceManager.Unregister();
     PostQuitMessage(0);
-}
-
-/* BOOL Cls_OnInput(HWND hWnd, UINT rimCode, HRAWINPUT hRawInput) */
-#define HANDLE_WM_INPUT(hWnd, wParam, lParam, fn) \
-    ((fn)((hWnd), GET_RAWINPUT_CODE_WPARAM(wParam), (HRAWINPUT)lParam) ? 0L : (LRESULT)-1L)
-#define FORWARD_WM_INPUT(hWnd, rimCode, hRawInput, fn) \
-    (BOOL)(DWORD)(fn)((hWnd), WM_INPUT, (WPARAM)rimCode, (LPARAM)hRawInput)
-
-BOOL WndProc_OnInput(HWND hWnd, UINT rimCode, HRAWINPUT hRawInput)
-{
-    rawDeviceManager.OnInput(hWnd, rimCode, hRawInput);
-
-    if(rimCode == RIM_INPUT)
-        return FORWARD_WM_INPUT(hWnd, rimCode, hRawInput, DefWindowProc);
-
-    return TRUE;
-}
-
-/* BOOL Cls_OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE hDevice) */
-#define HANDLE_WM_INPUT_DEVICE_CHANGE(hWnd, wParam, lParam, fn) \
-    ((fn)((hWnd), (UINT)wParam, (HANDLE)lParam) ? 0L : (LRESULT)-1L)
-
-BOOL WndProc_OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE hDevice)
-{
-    rawDeviceManager.OnInputDeviceChange(hWnd, gidcCode, hDevice);
-
-    return TRUE;
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -172,8 +141,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HANDLE_MSG(hWnd, WM_CREATE, WndProc_OnCreate);
         HANDLE_MSG(hWnd, WM_COMMAND, WndProc_OnCommand);
         HANDLE_MSG(hWnd, WM_DESTROY, WndProc_OnDestroy);
-        HANDLE_MSG(hWnd, WM_INPUT, WndProc_OnInput);
-        HANDLE_MSG(hWnd, WM_INPUT_DEVICE_CHANGE, WndProc_OnInputDeviceChange);
     default:
         return(DefWindowProc(hWnd, message, wParam, lParam));
     }

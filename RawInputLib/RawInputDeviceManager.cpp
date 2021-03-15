@@ -8,6 +8,9 @@
 #include "RawInputDeviceKeyboard.h"
 #include "RawInputDeviceHid.h"
 
+#include <unordered_map>
+#include <thread>
+
 namespace
 {
     void DumpInfo(const RawInputDevice* /*device*/)
@@ -22,41 +25,260 @@ namespace
     }
 }
 
-RawInputDeviceManager::RawInputDeviceManager()
+struct RawInputDeviceManager::RawInputManagerImpl
+{
+    RawInputManagerImpl();
+    ~RawInputManagerImpl();
+
+    void ThreadRun();
+
+    bool Register(HWND hWnd);
+    bool Unregister();
+
+    void OnInput(HRAWINPUT dataHandle);
+    void OnInputBuffered();
+
+    void OnInputDeviceChange();
+
+    void OnInput(const RAWINPUT* input);
+
+    std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE handle) const;
+
+
+    std::thread m_Thread;
+    std::atomic<bool> m_Running = true;
+    HANDLE m_WakeUpEvent = INVALID_HANDLE_VALUE;
+    DWORD m_ParentThreadId = 0;
+
+    std::vector<uint8_t> m_InputDataBuffer;
+    std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
+};
+
+RawInputDeviceManager::RawInputManagerImpl::RawInputManagerImpl()
+    : m_Thread(&RawInputManagerImpl::ThreadRun, this)
+    , m_ParentThreadId(::GetCurrentThreadId())
 {
 }
 
-void RawInputDeviceManager::Register(HWND hWnd)
+RawInputDeviceManager::RawInputManagerImpl::~RawInputManagerImpl()
 {
-    RAWINPUTDEVICE rid[1];
+    m_Running = false;
+    SetEvent(m_WakeUpEvent);
+    m_Thread.join();
+}
 
-    rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
-    rid[0].usUsage = 0;
-    rid[0].dwFlags = RIDEV_PAGEONLY | RIDEV_DEVNOTIFY | RIDEV_INPUTSINK;
-    rid[0].hwndTarget = hWnd;
+void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
+{
+    // TODO do we need buffered raw input processing?
+    constexpr bool buffered = false;
 
-    if (!RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE)))
+    // prepare buffer for up to 32 raw input messages
+    m_InputDataBuffer.resize(std::max({ sizeof(RAWKEYBOARD), sizeof(RAWMOUSE), sizeof(RAWHID) }) * 32);
+
+    m_WakeUpEvent = ::CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+    CHECK(IsValidHandle(m_WakeUpEvent));
+
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpszClassName = L"Message";
+    wc.lpfnWndProc = [](HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) -> LRESULT
+    {
+        RawInputManagerImpl* manager = reinterpret_cast<RawInputManagerImpl*>(GetWindowLongPtrW(hWnd, 0));
+
+        if (manager)
+        {
+            switch (message)
+            {
+            case WM_INPUT_DEVICE_CHANGE:
+            {
+                manager->OnInputDeviceChange();
+                return 0;
+            }
+            case WM_INPUT:
+            {
+                manager->OnInput(reinterpret_cast<HRAWINPUT>(lParam));
+                return 0;
+            }
+            }
+        }
+
+        return ::DefWindowProcW(hWnd, message, wParam, lParam);
+    };
+    wc.cbWndExtra = sizeof(RawInputManagerImpl*); // add some space for this pointer
+    wc.hInstance = ::GetModuleHandleW(nullptr);
+
+    ATOM classAtom = ::RegisterClassExW(&wc);
+    if (classAtom == 0)
+    {
+        DBGPRINT("Cannot register window class. GetLastError=%d", ::GetLastError());
+        return;
+    }
+
+    HWND hWnd = ::CreateWindowExW(0, reinterpret_cast<LPCWSTR>(classAtom), nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, 0);
+    if (!IsValidHandle(hWnd))
+    {
+        DBGPRINT("Cannot create hidden raw input window. GetLastError=%d", ::GetLastError());
+        return;
+    }
+
+    SetWindowLongPtrW(hWnd, 0, reinterpret_cast<LONG_PTR>(this));
+
+    //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true))
+    //    DBGPRINT("Cannot attach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
+
+    if (!Register(hWnd))
     {
         DBGPRINT("Cannot register raw input devices.");
+        return;
     }
-}
 
-void RawInputDeviceManager::Unregister()
-{
-    RAWINPUTDEVICE rid[1];
+    // enumerate devices before start
+    OnInputDeviceChange();
 
-    rid[0].usUsagePage = HID_USAGE_PAGE_GENERIC;
-    rid[0].usUsage = 0;
-    rid[0].dwFlags = RIDEV_REMOVE | RIDEV_PAGEONLY;
-    rid[0].hwndTarget = 0;
-
-    if (!RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE)))
+    // main message loop
+    while (m_Running)
     {
+        MSG msg;
+
+        if (buffered)
+            OnInputBuffered();
+
+        while (true)
+        {
+            bool haveMessage = false;
+
+            if (buffered)
+            {
+                haveMessage = ::PeekMessageW(&msg, 0, 0, WM_INPUT - 1, PM_REMOVE) ||
+                    ::PeekMessageW(&msg, 0, WM_INPUT + 1, 0, PM_REMOVE);
+            }
+            else
+            {
+                haveMessage = ::PeekMessageW(&msg, 0, 0, 0, PM_REMOVE);
+            }
+
+            if (!haveMessage)
+                break;
+
+            ::DispatchMessageW(&msg);
+        }
+
+        // wait for new messages
+        ::MsgWaitForMultipleObjectsEx(1, &m_WakeUpEvent, INFINITE, QS_ALLEVENTS, MWMO_INPUTAVAILABLE);
+    }
+
+    if (!Unregister())
         DBGPRINT("Cannot unregister raw input devices.");
+
+    if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false))
+        DBGPRINT("Cannot deattach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
+
+    if (hWnd)
+        ::DestroyWindow(hWnd);
+
+    if (classAtom)
+        UnregisterClassW(reinterpret_cast<LPCWSTR>(classAtom), wc.hInstance);
+}
+
+bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
+{
+    RAWINPUTDEVICE rid[] =
+    {
+        // TODO see https://github.com/niello/misc/blob/master/RawInputLocale/main.cpp
+        // for RIDEV_NOLEGACY support
+        /*{
+            HID_USAGE_PAGE_GENERIC,
+            HID_USAGE_GENERIC_MOUSE,
+            RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_NOLEGACY,
+            hWnd
+        },
+        {
+            HID_USAGE_PAGE_GENERIC,
+            HID_USAGE_GENERIC_KEYBOARD,
+            RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_NOLEGACY,
+            hWnd
+        },*/
+        {
+            HID_USAGE_PAGE_GENERIC,
+            0,
+            RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_PAGEONLY,
+            hWnd
+        }
+    };
+
+    return ::RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE));
+}
+
+bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
+{
+    RAWINPUTDEVICE rid[] =
+    {
+        {
+            HID_USAGE_PAGE_GENERIC,
+            0,
+            RIDEV_REMOVE | RIDEV_PAGEONLY,
+            0
+        }
+    };
+
+    return ::RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE));
+}
+
+void RawInputDeviceManager::RawInputManagerImpl::OnInput(HRAWINPUT dataHandle)
+{
+    CHECK(IsValidHandle(dataHandle));
+
+    UINT size = 0;
+    UINT result = ::GetRawInputData(dataHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+
+    if (result == static_cast<UINT>(-1))
+    {
+        //PLOG(ERROR) << "GetRawInputData() failed";
+        return;
+    }
+    DCHECK_EQ(0u, result);
+
+    // grow buffer if needed
+    if (m_InputDataBuffer.size() < size)
+        m_InputDataBuffer.resize(size);
+
+    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
+
+    result = ::GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
+
+    if (result == static_cast<UINT>(-1))
+    {
+        //PLOG(ERROR) << "GetRawInputData() failed";
+        return;
+    }
+    DCHECK_EQ(size, result);
+
+    OnInput(input);
+}
+
+void RawInputDeviceManager::RawInputManagerImpl::OnInputBuffered()
+{
+    while (true)
+    {
+        UINT size = static_cast<UINT>(m_InputDataBuffer.size());
+        RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
+
+        UINT result = ::GetRawInputBuffer(input, &size, sizeof(RAWINPUTHEADER));
+
+        if (result == 0 || result == static_cast<UINT>(-1))
+            return;
+
+        // hack for a undefined QWORD used in NEXTRAWINPUTBLOCK macro
+        using QWORD = __int64;
+
+        for (; result; result--, input = NEXTRAWINPUTBLOCK(input))
+        {
+            OnInput(input);
+        }
     }
 }
 
-void RawInputDeviceManager::EnumerateDevices()
+void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
 {
     UINT count = 0;
     UINT result = ::GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST));
@@ -74,23 +296,16 @@ void RawInputDeviceManager::EnumerateDevices()
         //PLOG(ERROR) << "GetRawInputDeviceList() failed";
         return;
     }
-    DCHECK_EQ(count, result);
 
     std::unordered_set<HANDLE> enumerated_device_handles;
-    for (UINT i = 0; i < count; ++i)
+    for (UINT i = 0; i < result; ++i)
     {
         const HANDLE device_handle = device_list[i].hDevice;
-        const DWORD device_type = device_list[i].dwType;
-        auto controller_it = m_Devices.find(device_handle);
 
-        RawInputDevice* device;
-        if (controller_it != m_Devices.end())
+        auto deviceIt = m_Devices.find(device_handle);
+        if (deviceIt == m_Devices.end())
         {
-            device = controller_it->second.get();
-        }
-        else
-        {
-
+            const DWORD device_type = device_list[i].dwType;
             auto new_device = CreateRawInputDevice(device_type, device_handle);
             if (!new_device || !new_device->IsValid())
             {
@@ -99,111 +314,42 @@ void RawInputDeviceManager::EnumerateDevices()
             }
 
             auto emplace_result = m_Devices.emplace(device_handle, std::move(new_device));
-            device = emplace_result.first->second.get();
+            CHECK(emplace_result.second);
 
             // TODO LOG
-            DumpInfo(device);
+            DumpInfo(emplace_result.first->second.get());
         }
 
         enumerated_device_handles.insert(device_handle);
     }
 
-    // Clear out old controllers that weren't part of this enumeration pass.
-    auto controller_it = m_Devices.begin();
-    while (controller_it != m_Devices.end())
+    // Clear out old devices that weren't part of this enumeration pass.
+    auto deviceIt = m_Devices.begin();
+    while (deviceIt != m_Devices.end())
     {
-        if (enumerated_device_handles.find(controller_it->first) == enumerated_device_handles.end())
+        if (enumerated_device_handles.find(deviceIt->first) == enumerated_device_handles.end())
         {
-            controller_it = m_Devices.erase(controller_it);
+            deviceIt = m_Devices.erase(deviceIt);
         }
         else
         {
-            ++controller_it;
+            ++deviceIt;
         }
     }
 }
 
-void RawInputDeviceManager::OnInput(HWND hWnd, UINT rimCode, HRAWINPUT dataHandle)
+void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 {
-    CHECK(IsValidHandle(hWnd));
+    CHECK(input);
+
+    if (!input)
+        return;
+
+    HANDLE handle = input->header.hDevice;
+    CHECK(IsValidHandle(handle));
+
+    UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
     DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
-    CHECK(IsValidHandle(dataHandle));
-
-    UINT size = 0;
-    UINT result = GetRawInputData(dataHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
-
-    if (result == static_cast<UINT>(-1))
-    {
-        //PLOG(ERROR) << "GetRawInputData() failed";
-        return;
-    }
-    DCHECK_EQ(0u, result);
-
-    // grow buffer if needed
-    if (m_InputDataBuffer.size() < size)
-        m_InputDataBuffer.resize(size);
-
-    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
-
-    result = GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
-
-    if (result == static_cast<UINT>(-1))
-    {
-        //PLOG(ERROR) << "GetRawInputData() failed";
-        return;
-    }
-    DCHECK_EQ(size, result);
-
-    OnInput(input->header.hDevice, input);
-
-    ProcessPendingInput();
-}
-
-void RawInputDeviceManager::ProcessPendingInput()
-{
-    UINT size = 0;
-    UINT result = GetRawInputBuffer(nullptr, &size, sizeof(RAWINPUTHEADER));
-
-    if (result == static_cast<UINT>(-1))
-    {
-        //PLOG(ERROR) << "GetRawInputBuffer() failed";
-        return;
-    }
-    DCHECK_EQ(0u, result);
-
-    // no pending WM_INPUT messages in thread queue
-    if (size == 0)
-        return;
-
-    size *= 16; // up to 16 messages per call
-
-    // grow up buffer if needed
-    if (m_InputDataBuffer.size() < size)
-        m_InputDataBuffer.resize(size);
-
-    while (true)
-    {
-        RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
-
-        result = GetRawInputBuffer(input, &size, sizeof(RAWINPUTHEADER));
-
-        if (result == 0 || result == static_cast<UINT>(-1))
-            break;
-
-        // hack for a undefined QWORD used in NEXTRAWINPUTBLOCK macro
-        using QWORD = __int64;
-
-        for (; result; result--, input = NEXTRAWINPUTBLOCK(input))
-        {
-            OnInput(input->header.hDevice, input);
-        }
-    }
-}
-
-void RawInputDeviceManager::OnInput(HANDLE handle, const RAWINPUT* input)
-{
-    if (!IsValidHandle(handle))
-        return;
 
     auto it = m_Devices.find(handle);
     if (it == m_Devices.end())
@@ -215,58 +361,7 @@ void RawInputDeviceManager::OnInput(HANDLE handle, const RAWINPUT* input)
     it->second->OnInput(input);
 }
 
-void RawInputDeviceManager::OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle)
-{
-    CHECK(IsValidHandle(hWnd));
-    DCHECK(gidcCode == GIDC_ARRIVAL || gidcCode == GIDC_REMOVAL);
-    CHECK(IsValidHandle(handle));
-
-    if (gidcCode == GIDC_ARRIVAL)
-    {
-        if (m_Devices.find(handle) != m_Devices.end())
-        {
-            DBGPRINT("Device 0x%x already exist", handle);
-            return;
-        }
-
-        RID_DEVICE_INFO info = {};
-        UINT size = sizeof(info);
-        UINT result = ::GetRawInputDeviceInfoW(handle, RIDI_DEVICEINFO, &info, &size);
-
-        if (result == static_cast<UINT>(-1))
-        {
-            DBGPRINT("GetRawInputDeviceInfo() failed for 0x%x handle", handle);
-            return;
-        }
-        DCHECK_EQ(size, result);
-
-        auto new_device = CreateRawInputDevice(info.dwType, handle);
-
-        if (!new_device || !new_device->IsValid())
-        {
-            DBGPRINT("Error while creating device of type %d", info.dwType);
-            return;
-        }
-
-        // TODO LOG
-        DumpInfo(new_device.get());
-
-        m_Devices.emplace(handle, std::move(new_device));
-    }
-    else
-    {
-        auto it = m_Devices.find(handle);
-        if (it == m_Devices.end())
-        {
-            DBGPRINT("Device 0x%x not found", handle);
-            return;
-        }
-
-        m_Devices.erase(it);
-    }
-}
-
-std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
+std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
 {
     switch (deviceType)
     {
@@ -283,3 +378,20 @@ std::unique_ptr<RawInputDevice> RawInputDeviceManager::CreateRawInputDevice(DWOR
     return nullptr;
 }
 
+RawInputDeviceManager::RawInputDeviceManager()
+    : m_RawInputManagerImpl(std::make_unique<RawInputManagerImpl>())
+{
+}
+
+RawInputDeviceManager::~RawInputDeviceManager() = default;
+
+std::vector<RawInputDevice*> RawInputDeviceManager::GetRawInputDevices() const
+{
+    std::vector<RawInputDevice*> devices;
+    for (auto& dev : m_RawInputManagerImpl->m_Devices)
+    {
+        devices.emplace_back(dev.second.get());
+    }
+
+    return devices;
+}
