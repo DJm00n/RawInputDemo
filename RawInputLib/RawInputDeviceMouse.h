@@ -2,6 +2,8 @@
 
 #include "RawInputDevice.h"
 
+#include <chrono>
+
 class RawInputDeviceMouse : public RawInputDevice
 {
     friend class RawInputDeviceFactory<RawInputDeviceMouse>;
@@ -29,4 +31,11 @@ private:
         bool m_HasVerticalWheel;
         bool m_HasHorizontalWheel;
     } m_MouseInfo;
+
+    int relativeX = 0;
+    int relativeY = 0;
+
+    int eventPerSec = 0;
+    std::chrono::seconds lastSec;
+    std::chrono::system_clock::time_point lastUpdate;
 };

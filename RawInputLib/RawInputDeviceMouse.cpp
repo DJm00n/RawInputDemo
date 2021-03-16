@@ -7,6 +7,8 @@
 
 #include <ntddmou.h>
 
+#include <chrono>
+
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
@@ -44,10 +46,38 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
     }
     else if (rawMouse.lLastX != 0 && rawMouse.lLastY != 0)
     {
-        //int relativeX = rawMouse.lLastX;
-        //int relativeY = rawMouse.lLastY;
+        if (relativeX == 0 && relativeY == 0)
+        {
+            relativeX = rawMouse.lLastX;
+            relativeY = rawMouse.lLastY;
+            eventPerSec = 0;
+            lastUpdate = std::chrono::system_clock::now();
+            lastSec = std::chrono::duration_cast<std::chrono::seconds>(lastUpdate.time_since_epoch());
+        }
 
-        //DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
+        auto nowNew = std::chrono::system_clock::now();
+        auto nowSecNew = std::chrono::duration_cast<std::chrono::seconds>(lastUpdate.time_since_epoch());
+
+        //auto duration = std::chrono::system_clock::now() - lastUpdate;
+        //auto deltaMs = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+
+        if (nowSecNew == lastSec)
+        {
+            ++eventPerSec;
+            relativeX += rawMouse.lLastX;
+            relativeY += rawMouse.lLastY;
+        }
+        else
+        {
+            DBGPRINT("RelativeMove, Name=%s, relativeX=%d, relativeY=%d, sec=%d, eventPerSec=%d\n", GetProductString().c_str(), relativeX, relativeY, lastSec.count(), eventPerSec);
+            eventPerSec = 0;
+            relativeX = 0;
+            relativeY = 0;
+        }
+
+        lastUpdate = std::chrono::system_clock::now();
+        lastSec = nowSecNew;
+
     }
 
     if ((rawMouse.usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||

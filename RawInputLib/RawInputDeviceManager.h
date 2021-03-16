@@ -18,7 +18,7 @@ public:
     void EnumerateDevices();
 
     void OnInput(HWND hWnd, UINT rimCode, HRAWINPUT dataHandle);
-    void OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE handle);
+    void OnInputDeviceChange(HWND hWnd, UINT gidcCode, HANDLE havndle);
 
 private:
     void ProcessPendingInput();
