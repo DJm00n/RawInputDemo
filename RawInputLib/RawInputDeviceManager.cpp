@@ -8,6 +8,7 @@
 #include "RawInputDeviceKeyboard.h"
 #include "RawInputDeviceHid.h"
 
+#include <array>
 #include <unordered_map>
 #include <thread>
 
@@ -35,7 +36,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
     bool Register(HWND hWnd);
     bool Unregister();
 
-    void OnInput(HRAWINPUT dataHandle);
+    void OnInputMessage(HRAWINPUT dataHandle);
     void OnInputBuffered();
 
     void OnInputDeviceChange();
@@ -44,13 +45,15 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE handle) const;
 
-
     std::thread m_Thread;
     std::atomic<bool> m_Running = true;
     HANDLE m_WakeUpEvent = INVALID_HANDLE_VALUE;
     DWORD m_ParentThreadId = 0;
 
-    std::vector<uint8_t> m_InputDataBuffer;
+    // up to 32 raw input messages (~1.5 kilobyte)
+    static constexpr size_t c_InputBufferSize = (sizeof(RAWINPUT) * 32);
+
+    std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
 
@@ -71,9 +74,6 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 {
     // TODO do we need buffered raw input processing?
     constexpr bool buffered = false;
-
-    // prepare buffer for up to 32 raw input messages
-    m_InputDataBuffer.resize(std::max({ sizeof(RAWKEYBOARD), sizeof(RAWMOUSE), sizeof(RAWHID) }) * 32);
 
     m_WakeUpEvent = ::CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
     CHECK(IsValidHandle(m_WakeUpEvent));
@@ -96,7 +96,8 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
             }
             case WM_INPUT:
             {
-                manager->OnInput(reinterpret_cast<HRAWINPUT>(lParam));
+                HRAWINPUT dataHandle = reinterpret_cast<HRAWINPUT>(lParam);
+                manager->OnInputMessage(dataHandle);
                 return 0;
             }
             }
@@ -121,7 +122,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
         return;
     }
 
-    SetWindowLongPtrW(hWnd, 0, reinterpret_cast<LONG_PTR>(this));
+    ::SetWindowLongPtrW(hWnd, 0, reinterpret_cast<LONG_PTR>(this));
 
     //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true))
     //    DBGPRINT("Cannot attach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
@@ -170,14 +171,14 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     if (!Unregister())
         DBGPRINT("Cannot unregister raw input devices.");
 
-    if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false))
-        DBGPRINT("Cannot deattach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
+    //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false))
+    //    DBGPRINT("Cannot deattach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
 
     if (hWnd)
         ::DestroyWindow(hWnd);
 
     if (classAtom)
-        UnregisterClassW(reinterpret_cast<LPCWSTR>(classAtom), wc.hInstance);
+        ::UnregisterClassW(reinterpret_cast<LPCWSTR>(classAtom), wc.hInstance);
 }
 
 bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
@@ -224,7 +225,7 @@ bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
     return ::RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE));
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnInput(HRAWINPUT dataHandle)
+void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHandle)
 {
     CHECK(IsValidHandle(dataHandle));
 
@@ -237,10 +238,6 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(HRAWINPUT dataHandle)
         return;
     }
     DCHECK_EQ(0u, result);
-
-    // grow buffer if needed
-    if (m_InputDataBuffer.size() < size)
-        m_InputDataBuffer.resize(size);
 
     RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
 
@@ -266,7 +263,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputBuffered()
         UINT result = ::GetRawInputBuffer(input, &size, sizeof(RAWINPUTHEADER));
 
         if (result == 0 || result == static_cast<UINT>(-1))
-            return;
+            break;
 
         // hack for a undefined QWORD used in NEXTRAWINPUTBLOCK macro
         using QWORD = __int64;
