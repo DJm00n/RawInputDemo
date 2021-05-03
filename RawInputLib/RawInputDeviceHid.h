@@ -12,6 +12,7 @@ class RawInputDeviceHid : public RawInputDevice
 
     static constexpr size_t kAxesLengthCap = 16;
     static constexpr size_t kButtonsLengthCap = 32;
+    static constexpr uint8_t kInvalidXInputUserId = 0xff; // XUSER_INDEX_ANY
 
 public:
     ~RawInputDeviceHid();
@@ -21,6 +22,10 @@ public:
 
     uint16_t GetUsagePage() const { return m_UsagePage; }
     uint16_t GetUsageId() const { return m_UsageId; }
+
+    bool IsXInputDevice() const { return m_XInputUserIndex != kInvalidXInputUserId; }
+    uint8_t GetXInputUserIndex() const { return m_XInputUserIndex; }
+    std::string GetXInputInterfacePath() const { return m_XInputInterfacePath; }
 
 protected:
     RawInputDeviceHid(HANDLE handle);
@@ -34,6 +39,9 @@ protected:
     void QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool>* button_indices_used);
     void QueryAxisCapabilities(uint16_t axis_count);
 
+    bool QueryXInputDeviceInterface();
+    bool QueryXInputDeviceInfo();
+
 private:
     // Axis state and capabilities for a single RawInput axis.
     struct RawGamepadAxis
@@ -45,6 +53,7 @@ private:
     };
 
 private:
+    // HID top-level collection's info
     uint16_t m_UsagePage = 0;
     uint16_t m_UsageId = 0;
 
@@ -58,4 +67,11 @@ private:
     // memory pointed to by |m_Preparsed_data|.
     std::unique_ptr<uint8_t[]> m_PPDBuffer;
     PHIDP_PREPARSED_DATA m_PreparsedData = nullptr;
+
+    std::string m_XInputInterfacePath;
+
+    // Index of the XInput controller. Can be a value in the range 0–3.
+    // Or |kInvalidXInputUserId| if not an XInput controller.
+    // https://docs.microsoft.com/windows/win32/xinput/getting-started-with-xinput#multiple-controllers
+    uint8_t m_XInputUserIndex = kInvalidXInputUserId; // XUSER_INDEX_ANY
 };

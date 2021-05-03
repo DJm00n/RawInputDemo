@@ -39,6 +39,16 @@ struct ScopedHandleDeleter
 
 typedef std::unique_ptr<void, ScopedHandleDeleter> ScopedHandle;
 
+inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool readOnly = false)
+{
+    DWORD desired_access = readOnly ? 0 : (GENERIC_WRITE | GENERIC_READ);
+    DWORD share_mode = FILE_SHARE_READ | FILE_SHARE_WRITE;
+
+    HANDLE handle = ::CreateFileW(utf8::widen(deviceInterface).c_str(), desired_access, share_mode, 0, OPEN_EXISTING, 0, 0);
+
+    return ScopedHandle(handle);
+}
+
 #ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);

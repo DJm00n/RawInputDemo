@@ -15,7 +15,7 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Keyboard device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, HID: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
+    DBGPRINT("New Keyboard device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, IsHIDDevice: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
 }
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard()

@@ -12,7 +12,7 @@ RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Mouse device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, HID: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
+    DBGPRINT("New Mouse device[VID:%04X,PID:%04X]: '%s', Interface: `%s`, IsHIDDevice: %d", GetVendorId(), GetProductId(), GetProductString().c_str(), GetInterfacePath().c_str(), IsHidDevice());
 }
 
 RawInputDeviceMouse::~RawInputDeviceMouse()

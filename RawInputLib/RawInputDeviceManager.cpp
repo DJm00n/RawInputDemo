@@ -91,6 +91,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
             {
             case WM_INPUT_DEVICE_CHANGE:
             {
+                DebugBreak();
                 manager->OnInputDeviceChange();
                 return 0;
             }
@@ -207,7 +208,7 @@ bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
         }
     };
 
-    return ::RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE));
+    return ::RegisterRawInputDevices(rid, static_cast<UINT>(std::size(rid)), sizeof(RAWINPUTDEVICE));
 }
 
 bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
@@ -222,7 +223,7 @@ bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
         }
     };
 
-    return ::RegisterRawInputDevices(rid, ARRAYSIZE(rid), sizeof(RAWINPUTDEVICE));
+    return ::RegisterRawInputDevices(rid, static_cast<UINT>(std::size(rid)), sizeof(RAWINPUTDEVICE));
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHandle)
@@ -234,7 +235,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
 
     if (result == static_cast<UINT>(-1))
     {
-        //PLOG(ERROR) << "GetRawInputData() failed";
+        DBGPRINT("GetRawInputData() failed. GetLastError=%d", ::GetLastError());
         return;
     }
     DCHECK_EQ(0u, result);
@@ -245,7 +246,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
 
     if (result == static_cast<UINT>(-1))
     {
-        //PLOG(ERROR) << "GetRawInputData() failed";
+        DBGPRINT("GetRawInputData() failed. GetLastError=%d", ::GetLastError());
         return;
     }
     DCHECK_EQ(size, result);
@@ -281,7 +282,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
     UINT result = ::GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST));
     if (result == static_cast<UINT>(-1))
     {
-        //PLOG(ERROR) << "GetRawInputDeviceList() failed";
+        DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
         return;
     }
     DCHECK_EQ(0u, result);
@@ -290,7 +291,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
     result = ::GetRawInputDeviceList(device_list.get(), &count, sizeof(RAWINPUTDEVICELIST));
     if (result == static_cast<UINT>(-1))
     {
-        //PLOG(ERROR) << "GetRawInputDeviceList() failed";
+        DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
         return;
     }
 

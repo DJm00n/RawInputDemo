@@ -2,8 +2,11 @@
 #include "framework.h"
 
 #include "RawInputDeviceHid.h"
+#include "SetupApiWrapper.h"
 
 #include <hidusage.h>
+
+#include <winioctl.h>
 
 namespace
 {
@@ -19,6 +22,8 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     m_IsValid = QueryDeviceInfo();
 
     DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetProductString().c_str(), GetInterfacePath().c_str());
+    if (IsXInputDevice())
+        DBGPRINT("->Its XInput Device[dwUserId:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -51,6 +56,13 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     // Gamepads must have at least one button or axis.
     //if (m_ButtonsLength == 0 && m_AxesLength == 0)
     //    return false;
+
+    // optional XInput device info
+    if (QueryXInputDeviceInterface() && !QueryXInputDeviceInfo())
+    {
+        DBGPRINT("Cannot get XInput info from '%s' interface.", m_XInputInterfacePath.c_str());
+        return false;
+    }
 
     return true;
 }
@@ -194,4 +206,78 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
                 break;
         }
     }
+}
+
+// https://github.com/nefarius/XInputHooker/issues/1
+// {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
+DEFINE_GUID(XUSB_INTERFACE_CLASS_GUID, 0xEC87F1E3, 0xC13B, 0x4100, 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB);
+
+bool RawInputDeviceHid::QueryXInputDeviceInterface()
+{
+    DCHECK(IsValidHandle(m_InterfaceHandle.get()));
+
+    m_XInputInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &XUSB_INTERFACE_CLASS_GUID);
+
+    return !m_XInputInterfacePath.empty();
+}
+
+bool RawInputDeviceHid::QueryXInputDeviceInfo()
+{
+    if (m_XInputInterfacePath.empty())
+        return false;
+
+    ScopedHandle XInputInterfaceHandle = OpenDeviceInterface(m_XInputInterfacePath);
+
+    if (!IsValidHandle(XInputInterfaceHandle.get()))
+        return false;
+
+    std::array<uint8_t, 3> gamepadStateRequest0101{ 0x01, 0x01, 0x00 };
+    std::array<uint8_t, 3> ledStateData;
+    DWORD len = 0;
+
+    constexpr DWORD IOCTL_XUSB_GET_LED_STATE = 0x8000E008;
+
+    if (!::DeviceIoControl(XInputInterfaceHandle.get(),
+        IOCTL_XUSB_GET_LED_STATE,
+        gamepadStateRequest0101.data(),
+        static_cast<DWORD>(gamepadStateRequest0101.size()),
+        ledStateData.data(),
+        static_cast<DWORD>(ledStateData.size()),
+        &len,
+        nullptr))
+    {
+        // GetLastError()
+        return false;
+    }
+
+    DCHECK_EQ(len, ledStateData.size());
+
+    // https://www.partsnotincluded.com/xbox-360-controller-led-animations-info/
+    constexpr uint8_t XINPUT_LED_TO_PORT_MAP[] =
+    {
+        kInvalidXInputUserId, // All off
+        kInvalidXInputUserId, // All blinking
+        0,  // 1 flashes, then on
+        1,  // 2 flashes, then on
+        2,  // 3 flashes, then on
+        3,  // 4 flashes, then on
+        0,  // 1 on
+        1,  // 2 on
+        2,  // 3 on
+        3,  // 4 on
+        kInvalidXInputUserId, // Rotating(e.g. 1 - 2 - 4 - 3)
+        kInvalidXInputUserId, // Blinking *
+        kInvalidXInputUserId, // Slow blinking *
+        kInvalidXInputUserId, // Alternating(e.g. 1 + 4 - 2 + 3), then back to previous *
+        kInvalidXInputUserId,
+        0
+    };
+
+    const uint8_t ledState = ledStateData[2];
+
+    DCHECK_LE(ledState, std::size(XINPUT_LED_TO_PORT_MAP));
+
+    m_XInputUserIndex = XINPUT_LED_TO_PORT_MAP[ledState];
+
+    return true;
 }
