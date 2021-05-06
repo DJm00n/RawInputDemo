@@ -22,8 +22,12 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     m_IsValid = QueryDeviceInfo();
 
     DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetProductString().c_str(), GetInterfacePath().c_str());
+
     if (IsXInputDevice())
-        DBGPRINT("->Its XInput Device[dwUserId:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
+        DBGPRINT("->Its XInput Device[%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
+
+    if (IsXboxGIPDevice())
+        DBGPRINT("->Its Xbox One GIP Device: Interface: `%s`", GetXboxGIPInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -212,11 +216,16 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
 // {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
 DEFINE_GUID(XUSB_INTERFACE_CLASS_GUID, 0xEC87F1E3, 0xC13B, 0x4100, 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB);
 
+// {020BC73C-0DCA-4EE3-96D5-AB006ADA5938}
+DEFINE_GUID(GUID_DEVINTERFACE_DC1_CONTROLLER, 0x020BC73C, 0x0DCA, 0x4EE3, 0x96, 0xD5, 0xAB, 0x00, 0x6A, 0xDA, 0x59, 0x38);
+
 bool RawInputDeviceHid::QueryXInputDeviceInterface()
 {
     DCHECK(IsValidHandle(m_InterfaceHandle.get()));
 
     m_XInputInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &XUSB_INTERFACE_CLASS_GUID);
+
+    m_XboxGIPInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_DC1_CONTROLLER);
 
     return !m_XInputInterfacePath.empty();
 }
