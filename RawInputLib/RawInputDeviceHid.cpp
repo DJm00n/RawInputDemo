@@ -262,10 +262,11 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
     DCHECK_EQ(len, ledStateData.size());
 
     // https://www.partsnotincluded.com/xbox-360-controller-led-animations-info/
+    // https://github.com/paroj/xpad/blob/5978d1020344c3288701ef70ea9a54dfc3312733/xpad.c#L1382-L1402
     constexpr uint8_t XINPUT_LED_TO_PORT_MAP[] =
     {
         kInvalidXInputUserId, // All off
-        kInvalidXInputUserId, // All blinking
+        kInvalidXInputUserId, // All blinking, then previous setting
         0,  // 1 flashes, then on
         1,  // 2 flashes, then on
         2,  // 3 flashes, then on
@@ -274,12 +275,12 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
         1,  // 2 on
         2,  // 3 on
         3,  // 4 on
-        kInvalidXInputUserId, // Rotating(e.g. 1 - 2 - 4 - 3)
-        kInvalidXInputUserId, // Blinking *
-        kInvalidXInputUserId, // Slow blinking *
-        kInvalidXInputUserId, // Alternating(e.g. 1 + 4 - 2 + 3), then back to previous *
-        kInvalidXInputUserId,
-        0
+        kInvalidXInputUserId, // Rotate
+        kInvalidXInputUserId, // Blink, based on previous setting
+        kInvalidXInputUserId, // Slow blink, based on previous setting
+        kInvalidXInputUserId, // Rotate with two lights
+        kInvalidXInputUserId, // Persistent slow all blink
+        kInvalidXInputUserId, // Blink once, then previous setting
     };
 
     const uint8_t ledState = ledStateData[2];
