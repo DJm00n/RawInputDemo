@@ -25,9 +25,6 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 
     if (IsXInputDevice())
         DBGPRINT("->Its XInput Device[%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
-
-    if (IsXboxGIPDevice())
-        DBGPRINT("->Its Xbox One GIP Device: Interface: `%s`", GetXboxGIPInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -212,20 +209,15 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
     }
 }
 
-// https://github.com/nefarius/XInputHooker/issues/1
-// {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
-DEFINE_GUID(XUSB_INTERFACE_CLASS_GUID, 0xEC87F1E3, 0xC13B, 0x4100, 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB);
-
-// {020BC73C-0DCA-4EE3-96D5-AB006ADA5938}
-DEFINE_GUID(GUID_DEVINTERFACE_DC1_CONTROLLER, 0x020BC73C, 0x0DCA, 0x4EE3, 0x96, 0xD5, 0xAB, 0x00, 0x6A, 0xDA, 0x59, 0x38);
-
 bool RawInputDeviceHid::QueryXInputDeviceInterface()
 {
     DCHECK(IsValidHandle(m_InterfaceHandle.get()));
 
-    m_XInputInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &XUSB_INTERFACE_CLASS_GUID);
+    // Xbox 360 XUSB Interface
+    // {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
+    static constexpr GUID XUSB_INTERFACE_CLASS_GUID = { 0xEC87F1E3, 0xC13B, 0x4100, { 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB } };
 
-    m_XboxGIPInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_DC1_CONTROLLER);
+    m_XInputInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &XUSB_INTERFACE_CLASS_GUID);
 
     return !m_XInputInterfacePath.empty();
 }
@@ -244,6 +236,8 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
     std::array<uint8_t, 3> ledStateData;
     DWORD len = 0;
 
+    // https://github.com/nefarius/XInputHooker/issues/1
+    // https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435
     constexpr DWORD IOCTL_XUSB_GET_LED_STATE = 0x8000E008;
 
     if (!::DeviceIoControl(XInputInterfaceHandle.get(),
@@ -265,22 +259,22 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
     // https://github.com/paroj/xpad/blob/5978d1020344c3288701ef70ea9a54dfc3312733/xpad.c#L1382-L1402
     constexpr uint8_t XINPUT_LED_TO_PORT_MAP[] =
     {
-        kInvalidXInputUserId, // All off
-        kInvalidXInputUserId, // All blinking, then previous setting
-        0,  // 1 flashes, then on
-        1,  // 2 flashes, then on
-        2,  // 3 flashes, then on
-        3,  // 4 flashes, then on
-        0,  // 1 on
-        1,  // 2 on
-        2,  // 3 on
-        3,  // 4 on
-        kInvalidXInputUserId, // Rotate
-        kInvalidXInputUserId, // Blink, based on previous setting
-        kInvalidXInputUserId, // Slow blink, based on previous setting
-        kInvalidXInputUserId, // Rotate with two lights
-        kInvalidXInputUserId, // Persistent slow all blink
-        kInvalidXInputUserId, // Blink once, then previous setting
+        kInvalidXInputUserId,   // All off
+        kInvalidXInputUserId,   // All blinking, then previous setting
+        0,                      // 1 flashes, then on
+        1,                      // 2 flashes, then on
+        2,                      // 3 flashes, then on
+        3,                      // 4 flashes, then on
+        0,                      // 1 on
+        1,                      // 2 on
+        2,                      // 3 on
+        3,                      // 4 on
+        kInvalidXInputUserId,   // Rotate
+        kInvalidXInputUserId,   // Blink, based on previous setting
+        kInvalidXInputUserId,   // Slow blink, based on previous setting
+        kInvalidXInputUserId,   // Rotate with two lights
+        kInvalidXInputUserId,   // Persistent slow all blink
+        kInvalidXInputUserId,   // Blink once, then previous setting
     };
 
     const uint8_t ledState = ledStateData[2];

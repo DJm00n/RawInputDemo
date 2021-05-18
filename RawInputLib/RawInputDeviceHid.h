@@ -27,9 +27,6 @@ public:
     uint8_t GetXInputUserIndex() const { return m_XInputUserIndex; }
     std::string GetXInputInterfacePath() const { return m_XInputInterfacePath; }
 
-    bool IsXboxGIPDevice() const { return !m_XboxGIPInterfacePath.empty(); }
-    std::string GetXboxGIPInterfacePath() const { return m_XboxGIPInterfacePath; }
-
 protected:
     RawInputDeviceHid(HANDLE handle);
 
@@ -77,6 +74,4 @@ private:
     // Or |kInvalidXInputUserId| if not an XInput controller.
     // https://docs.microsoft.com/windows/win32/xinput/getting-started-with-xinput#multiple-controllers
     uint8_t m_XInputUserIndex = kInvalidXInputUserId; // XUSER_INDEX_ANY
-
-    std::string m_XboxGIPInterfacePath;
 };

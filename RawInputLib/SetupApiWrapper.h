@@ -88,7 +88,7 @@ template<> inline std::vector<std::string> PropertyDataCast(const std::vector<ui
     std::string strList(PropertyDataCast<std::string>(propertyData));
 
     std::vector<std::string> outList;
-    for (size_t i = 0; i != std::wstring::npos && i < strList.size(); i = strList.find('\0', i), ++i)
+    for (size_t i = 0; i != std::string::npos && i < strList.size(); i = strList.find('\0', i), ++i)
     {
         std::string elem(&strList[i]);
         if (!elem.empty())
