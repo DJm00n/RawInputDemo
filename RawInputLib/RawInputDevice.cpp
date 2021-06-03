@@ -108,10 +108,10 @@ bool RawInputDevice::QueryHidDeviceInfo()
     std::wstring buffer;
     buffer.resize(128);
 
-    if (::HidD_GetManufacturerString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
+    if (::HidD_GetManufacturerString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())) && buffer[0] != 0)
         m_ManufacturerString = utf8::narrow(buffer);
 
-    if (::HidD_GetProductString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
+    if (::HidD_GetProductString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())) && buffer[0] != 0)
         m_ProductString = utf8::narrow(buffer);
 
     if (::HidD_GetSerialNumberString(m_InterfaceHandle.get(), &buffer.front(), static_cast<ULONG>(buffer.size())))

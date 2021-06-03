@@ -11,6 +11,9 @@ inline std::vector<uint8_t> GetDeviceInterfaceProperty(const std::string& device
     ULONG propertySize = 0;
     CONFIGRET cr = ::CM_Get_Device_Interface_PropertyW(devInterface.c_str(), propertyKey, &propertyType, nullptr, &propertySize, 0);
 
+    if (cr == CR_NO_SUCH_VALUE)
+        return {};
+
     DCHECK_EQ(cr, CR_BUFFER_SMALL);
     DCHECK_EQ(propertyType, expectedPropertyType);
 

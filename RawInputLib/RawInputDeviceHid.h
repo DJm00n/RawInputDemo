@@ -27,6 +27,8 @@ public:
     uint8_t GetXInputUserIndex() const { return m_XInputUserIndex; }
     std::string GetXInputInterfacePath() const { return m_XInputInterfacePath; }
 
+    bool IsBluetoothLEDevice() const { return !m_BluetoothLEInterfacePath.empty(); }
+
 protected:
     RawInputDeviceHid(HANDLE handle);
 
@@ -41,6 +43,9 @@ protected:
 
     bool QueryXInputDeviceInterface();
     bool QueryXInputDeviceInfo();
+
+    bool QueryBluetoothLEDeviceInterface();
+    bool QueryBluetoothLEDeviceInfo();
 
 private:
     // Axis state and capabilities for a single RawInput axis.
@@ -74,4 +79,6 @@ private:
     // Or |kInvalidXInputUserId| if not an XInput controller.
     // https://docs.microsoft.com/windows/win32/xinput/getting-started-with-xinput#multiple-controllers
     uint8_t m_XInputUserIndex = kInvalidXInputUserId; // XUSER_INDEX_ANY
+
+    std::string m_BluetoothLEInterfacePath;
 };
