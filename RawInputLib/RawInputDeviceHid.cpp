@@ -21,13 +21,13 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetProductString().c_str(), GetInterfacePath().c_str());
+    DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: Manufacturer: '%s', Product: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetManufacturerString().c_str(), GetProductString().c_str(), GetInterfacePath().c_str());
 
     if (IsXInputDevice())
-        DBGPRINT("->Its XInput Device[%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
+        DBGPRINT("->Its XInput Device[UserID:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
 
     if (IsBluetoothLEDevice())
-        DBGPRINT("->Its BluetoothLE Device[MAC:%s], Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
+        DBGPRINT("->Its BluetoothLE Device[MAC:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -223,6 +223,11 @@ bool RawInputDeviceHid::QueryXInputDeviceInterface()
 {
     DCHECK(IsValidHandle(m_InterfaceHandle.get()));
 
+    // https://docs.microsoft.com/windows/win32/xinput/xinput-and-directinput
+    stringutils::ci_string tmp(m_InterfacePath.c_str(), m_InterfacePath.size());
+    if (tmp.find("IG_") == stringutils::ci_string::npos)
+        return false;
+
     // Xbox 360 XUSB Interface
     // {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
     static constexpr GUID XUSB_INTERFACE_CLASS_GUID = { 0xEC87F1E3, 0xC13B, 0x4100, { 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB } };
@@ -236,6 +241,12 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
 {
     if (m_XInputInterfacePath.empty())
         return false;
+
+    std::string deviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_XInputInterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
+
+    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
+
 
     ScopedHandle XInputInterfaceHandle = OpenDeviceInterface(m_XInputInterfacePath);
 
@@ -324,8 +335,8 @@ bool RawInputDeviceHid::QueryBluetoothLEDeviceInfo()
     if (m_BluetoothLEInterfacePath.empty())
         return false;
 
-    std::string dviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_BluetoothLEInterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
-    DEVINST devNodeHandle = OpenDevNode(dviceInstanceId);
+    std::string deviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_BluetoothLEInterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
 
     m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
 

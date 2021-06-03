@@ -81,6 +81,8 @@ bool RawInputDevice::QueryDeviceNodeInfo()
 {
     DCHECK(!m_InterfacePath.empty());
 
+    // TODO implement fHasSpecificHardwareMatch from DirectInput code
+
     m_DeviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_InterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
 
     DEVINST devNodeHandle = OpenDevNode(m_DeviceInstanceId);
@@ -108,10 +110,10 @@ bool RawInputDevice::QueryHidDeviceInfo()
     std::wstring buffer;
     buffer.resize(128);
 
-    if (::HidD_GetManufacturerString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())) && buffer[0] != 0)
+    if (::HidD_GetManufacturerString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
         m_ManufacturerString = utf8::narrow(buffer);
 
-    if (::HidD_GetProductString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())) && buffer[0] != 0)
+    if (::HidD_GetProductString(m_InterfaceHandle.get(), buffer.data(), static_cast<ULONG>(buffer.size())))
         m_ProductString = utf8::narrow(buffer);
 
     if (::HidD_GetSerialNumberString(m_InterfaceHandle.get(), &buffer.front(), static_cast<ULONG>(buffer.size())))
