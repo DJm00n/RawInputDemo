@@ -23,7 +23,7 @@ bool RawInputDevice::QueryDeviceInfo()
     if (!QueryRawInputDeviceInfo())
         return false;
 
-    if (!QueryDeviceNodeInfo())
+    if (IsValidHandle(m_InterfaceHandle.get()) && !QueryDeviceNodeInfo())
         return false;
 
     // optional HID device info
@@ -71,10 +71,11 @@ bool RawInputDevice::QueryRawInputDeviceInfo()
         can still be sent and received.  Retry opening the device, but
         without read/write access. */
         m_InterfaceHandle = OpenDeviceInterface(m_InterfacePath, true);
-        m_IsReadOnlyInterface = true;
+        if (IsValidHandle(m_InterfaceHandle.get()))
+            m_IsReadOnlyInterface = true;
     }
 
-    return !m_InterfacePath.empty() && IsValidHandle(m_InterfaceHandle.get());
+    return !m_InterfacePath.empty();
 }
 
 bool RawInputDevice::QueryDeviceNodeInfo()

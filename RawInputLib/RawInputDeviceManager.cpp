@@ -91,7 +91,6 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
             {
             case WM_INPUT_DEVICE_CHANGE:
             {
-                DebugBreak();
                 manager->OnInputDeviceChange();
                 return 0;
             }
@@ -344,7 +343,8 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
         return;
 
     HANDLE handle = input->header.hDevice;
-    CHECK(IsValidHandle(handle));
+    if (!IsValidHandle(handle))
+        return;
 
     UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
     DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
