@@ -24,10 +24,13 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     DBGPRINT("New HID device[VID:%04X,PID:%04X][UP:%04X,U:%04X]: Manufacturer: '%s', Product: '%s', Interface: `%s`", GetVendorId(), GetProductId(), GetUsagePage(), GetUsageId(), GetManufacturerString().c_str(), GetProductString().c_str(), GetInterfacePath().c_str());
 
     if (IsXInputDevice())
-        DBGPRINT("->Its XInput Device[UserID:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
+        DBGPRINT("  ->Its XInput Device[UserID:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
+
+    if (IsXboxGipDevice())
+        DBGPRINT("  ->Its Xbox One GIP Device[Serial:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_XboxGipInterfacePath.c_str());
 
     if (IsBluetoothLEDevice())
-        DBGPRINT("->Its BluetoothLE Device[MAC:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
+        DBGPRINT("  ->Its BluetoothLE Device[MAC:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -65,6 +68,20 @@ bool RawInputDeviceHid::QueryDeviceInfo()
     if (QueryXInputDeviceInterface() && !QueryXInputDeviceInfo())
     {
         DBGPRINT("Cannot get XInput info from '%s' interface.", m_XInputInterfacePath.c_str());
+        return false;
+    }
+
+    // optional XInput device info
+    if (QueryXInputDeviceInterface() && !QueryXInputDeviceInfo())
+    {
+        DBGPRINT("Cannot get XInput info from '%s' interface.", m_XInputInterfacePath.c_str());
+        return false;
+    }
+
+    // optional Xbox One GIP device info
+    if (QueryXboxGIPDeviceInterface() && !QueryXboxGIPDeviceInfo())
+    {
+        DBGPRINT("Cannot get Xbox One GIP info from '%s' interface.", m_XboxGipInterfacePath.c_str());
         return false;
     }
 
@@ -242,11 +259,10 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
     if (m_XInputInterfacePath.empty())
         return false;
 
-    std::string deviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_XInputInterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    std::string deviceInstanceId = GetDeviceFromInterface(m_XInputInterfacePath);
     DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
 
     m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
-
 
     ScopedHandle XInputInterfaceHandle = OpenDeviceInterface(m_XInputInterfacePath);
 
@@ -307,6 +323,54 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
     return true;
 }
 
+bool RawInputDeviceHid::QueryXboxGIPDeviceInterface()
+{
+    DCHECK(IsValidHandle(m_InterfaceHandle.get()));
+
+    // Xbox One GIP Interface
+    // {020BC73C-0DCA-4EE3-96D5-AB006ADA5938}
+    static constexpr GUID GUID_DEVINTERFACE_DC1_CONTROLLER = { 0x020BC73C, 0x0DCA, 0x4EE3, { 0x96, 0xD5, 0xAB, 0x00, 0x6A, 0xDA, 0x59, 0x38 } };
+
+    m_XboxGipInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_DC1_CONTROLLER);
+
+    return !m_XboxGipInterfacePath.empty();
+}
+
+bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
+{
+    // Test for XBOXGIP driver software PID
+    if (!(m_VendorId == 0x045E && m_ProductId == 0x02FF))
+        return false;
+
+    std::string deviceInstanceId = GetDeviceFromInterface(m_XboxGipInterfacePath);
+
+    // Get Vendor ID and Product ID from a real USB device
+    // https://docs.microsoft.com/windows-hardware/drivers/install/standard-usb-identifiers
+    unsigned int vid, pid;
+    std::array<char, 50> serial = { 0 };
+    ::sscanf(deviceInstanceId.c_str(), "USB\\VID_%04X&PID_%04X\\%s", &vid, &pid, serial.data());
+
+    m_VendorId = static_cast<uint16_t>(vid);
+    m_ProductId = static_cast<uint16_t>(pid);
+
+    size_t serialLen = ::strlen(serial.data());
+    if (serialLen <= 12)
+    {
+        m_SerialNumberString.assign(serial.data(), serialLen);
+    }
+    else
+    {
+        // Serial number is in odd format
+        for (int i = 0; i < serialLen; ++i)
+        {
+            if (i % 2 != 0)
+                m_SerialNumberString.push_back(serial[i]);
+        }
+    }
+
+    return true;
+}
+
 bool RawInputDeviceHid::QueryBluetoothLEDeviceInterface()
 {
     DCHECK(IsValidHandle(m_InterfaceHandle.get()));
@@ -335,7 +399,7 @@ bool RawInputDeviceHid::QueryBluetoothLEDeviceInfo()
     if (m_BluetoothLEInterfacePath.empty())
         return false;
 
-    std::string deviceInstanceId = PropertyDataCast<std::string>(GetDeviceInterfaceProperty(m_BluetoothLEInterfacePath, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    std::string deviceInstanceId = GetDeviceFromInterface(m_BluetoothLEInterfacePath);
     DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
 
     m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));

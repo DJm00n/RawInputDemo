@@ -22,7 +22,7 @@ public:
 
     std::string GetManufacturerString() const { return m_ManufacturerString; }
     std::string GetProductString() const { return m_ProductString; }
-    bool IsHidDevice() const { return m_IsHidDevice; }
+    bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
     uint16_t GetVendorId() const { return m_VendorId; }
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
@@ -48,7 +48,7 @@ protected:
     ScopedHandle m_InterfaceHandle;
 
     bool m_IsReadOnlyInterface = false;
-    bool m_IsHidDevice = false;
+    std::string m_HidInterfacePath;
 
     // HID device info
     std::string m_ManufacturerString;

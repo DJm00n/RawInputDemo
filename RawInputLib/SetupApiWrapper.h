@@ -155,3 +155,12 @@ inline std::string SearchParentDeviceInterface(const std::string& deviceInstance
 
     return interfacePath;
 }
+
+inline std::string GetDeviceFromInterface(const std::string& deviceInterfaceName)
+{
+    return PropertyDataCast<std::string>(
+        GetDeviceInterfaceProperty(
+            deviceInterfaceName,
+            &DEVPKEY_Device_InstanceId,
+            DEVPROP_TYPE_STRING));
+}
