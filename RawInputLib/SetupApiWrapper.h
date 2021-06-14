@@ -71,7 +71,8 @@ template<> inline std::wstring PropertyDataCast(const std::vector<uint8_t>& prop
     if (propertyData.empty())
         return {};
 
-    std::wstring wstr(reinterpret_cast<const std::wstring::value_type*>(propertyData.data()), propertyData.size() / sizeof(std::wstring::value_type));
+    const size_t len = propertyData.size() / sizeof(std::wstring::value_type) - 1;
+    std::wstring wstr(reinterpret_cast<const std::wstring::value_type*>(propertyData.data()), len);
 
     return std::move(wstr);
 }
@@ -137,6 +138,9 @@ inline std::string GetParentDevice(const std::string& deviceInstanceId)
 
 inline std::string SearchParentDeviceInterface(const std::string& deviceInstanceId, LPCGUID intefaceGuid)
 {
+    if (deviceInstanceId.empty())
+        return {};
+
     std::string interfacePath = GetDeviceInterface(deviceInstanceId, intefaceGuid);
 
     if (interfacePath.empty())

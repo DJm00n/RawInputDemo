@@ -11,6 +11,9 @@
 #include <initguid.h>
 #pragma warning(pop)
 
+#include <winioctl.h>
+#include <usbioctl.h>
+
 RawInputDevice::RawInputDevice(HANDLE handle)
     : m_Handle(handle)
     , m_IsValid(false)
@@ -25,6 +28,12 @@ bool RawInputDevice::QueryDeviceInfo()
 
     if (IsValidHandle(m_InterfaceHandle.get()) && !QueryDeviceNodeInfo())
         return false;
+
+    if (QueryUsbDeviceInterface() && !QueryUsbDeviceInfo())
+    {
+        DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDeviceInterface.c_str());
+        return false;
+    }
 
     // optional HID device info
     if (IsHidDevice() && !QueryHidDeviceInfo())
@@ -102,6 +111,127 @@ bool RawInputDevice::QueryDeviceNodeInfo()
     m_HidInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &hid_guid);
 
     return !m_ProductString.empty() || !m_ManufacturerString.empty();
+}
+
+bool RawInputDevice::QueryUsbDeviceInterface()
+{
+    m_UsbDeviceInterface = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_DEVICE);
+
+    return !m_UsbDeviceInterface.empty();
+}
+
+namespace {
+    bool GetDeviceConnectionIndex(const ScopedHandle& hubInterfaceHandle, const std::string& usbDeviceDriverKey, ULONG* deviceConnectionIndex)
+    {
+        USB_NODE_INFORMATION hubInfo;
+        DWORD len = 0;
+
+        if (!::DeviceIoControl(hubInterfaceHandle.get(),
+            IOCTL_USB_GET_NODE_INFORMATION,
+            &hubInfo,
+            sizeof(USB_NODE_INFORMATION),
+            &hubInfo,
+            sizeof(USB_NODE_INFORMATION),
+            &len,
+            nullptr))
+        {
+            return false;
+        }
+
+        DCHECK_EQ(len, sizeof(USB_NODE_INFORMATION));
+        DCHECK_EQ(hubInfo.NodeType, UsbHub);
+
+        len = sizeof(USB_NODE_CONNECTION_DRIVERKEY_NAME);
+        std::vector<uint8_t> buffer(len, 0);
+
+        // port indices are 1 based, not 0 based
+        for (UCHAR index = 1; index <= hubInfo.u.HubInformation.HubDescriptor.bNumberOfPorts; ++index)
+        {
+            PUSB_NODE_CONNECTION_DRIVERKEY_NAME driverKey = reinterpret_cast<PUSB_NODE_CONNECTION_DRIVERKEY_NAME>(buffer.data());
+            driverKey->ConnectionIndex = index;
+
+            if (!::DeviceIoControl(hubInterfaceHandle.get(),
+                IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME,
+                driverKey,
+                len,
+                driverKey,
+                len,
+                &len,
+                nullptr))
+            {
+                continue;
+            }
+
+            if (driverKey->ActualLength > len)
+            {
+                len = driverKey->ActualLength;
+                buffer.resize(len, 0);
+                --index;
+
+                // try again with bigger buffer
+                continue;
+            }
+
+            std::string driverKeyName(utf8::narrow(driverKey->DriverKeyName,
+                (driverKey->ActualLength - sizeof(USB_NODE_CONNECTION_DRIVERKEY_NAME)) / sizeof(WCHAR) - 1));
+
+            if (driverKeyName != usbDeviceDriverKey)
+                continue;
+
+            *deviceConnectionIndex = index;
+            return true;
+        }
+
+        return false;
+    }
+}
+
+bool RawInputDevice::QueryUsbDeviceInfo()
+{
+    std::string usbDeviceInstanceId = GetDeviceFromInterface(m_UsbDeviceInterface);
+
+    DEVINST devNodeHandle = OpenDevNode(usbDeviceInstanceId);
+    std::string deviceDriverKey = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Driver, DEVPROP_TYPE_STRING));
+
+    std::string usbHubInterface = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_HUB);
+
+    if (usbHubInterface.empty())
+        return false;
+
+    ScopedHandle usbHubInterfaceHandle = OpenDeviceInterface(usbHubInterface);
+
+    if (!IsValidHandle(usbHubInterfaceHandle.get()))
+        return false;
+
+    ULONG index;
+    if (!GetDeviceConnectionIndex(usbHubInterfaceHandle, deviceDriverKey, &index))
+        return false;
+
+    DWORD len = sizeof(USB_NODE_CONNECTION_INFORMATION);
+    std::vector<uint8_t> buffer(len, 0);
+
+    PUSB_NODE_CONNECTION_INFORMATION connectionInfo = reinterpret_cast<PUSB_NODE_CONNECTION_INFORMATION>(buffer.data());
+    connectionInfo->ConnectionIndex = index;
+
+    if (!::DeviceIoControl(usbHubInterfaceHandle.get(),
+        IOCTL_USB_GET_NODE_CONNECTION_INFORMATION,
+        connectionInfo,
+        len,
+        connectionInfo,
+        len,
+        &len,
+        nullptr))
+        return false;
+
+    m_UsbVendorId = connectionInfo->DeviceDescriptor.idVendor;
+    m_UsbProductId = connectionInfo->DeviceDescriptor.idProduct;
+    m_UsbVersionNumber = connectionInfo->DeviceDescriptor.bcdDevice;
+
+    // TODO we can also
+    // call IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION
+    // to get string descriptors from USB device: serial number etc
+
+    return true;
 }
 
 bool RawInputDevice::QueryHidDeviceInfo()

@@ -27,6 +27,8 @@ public:
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
+    bool IsUsbDevice() const { return !m_UsbDeviceInterface.empty(); }
+
 protected:
     RawInputDevice(HANDLE handle);
 
@@ -36,6 +38,10 @@ protected:
 
     bool QueryRawInputDeviceInfo();
     bool QueryDeviceNodeInfo();
+
+    bool QueryUsbDeviceInterface();
+    bool QueryUsbDeviceInfo();
+
     bool QueryHidDeviceInfo();
 
     // (RIDI_DEVICEINFO). nullptr on failure.
@@ -46,6 +52,11 @@ protected:
 
     std::string m_InterfacePath;
     ScopedHandle m_InterfaceHandle;
+
+    std::string m_UsbDeviceInterface;
+    uint16_t m_UsbVendorId = 0;
+    uint16_t m_UsbProductId = 0;
+    uint16_t m_UsbVersionNumber = 0;
 
     bool m_IsReadOnlyInterface = false;
     std::string m_HidInterfacePath;

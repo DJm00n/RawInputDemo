@@ -7,6 +7,7 @@
 #include <hidusage.h>
 
 #include <winioctl.h>
+#include <usbioctl.h>
 
 namespace
 {
@@ -31,6 +32,9 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 
     if (IsBluetoothLEDevice())
         DBGPRINT("  ->Its BluetoothLE Device[MAC:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
+
+    if (IsUsbDevice())
+        DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%04X]: Interface: `%s`", m_UsbVendorId, m_UsbProductId, m_UsbVersionNumber, m_UsbDeviceInterface.c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
@@ -340,8 +344,8 @@ bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
     std::array<char, 50> serial = { 0 };
     ::sscanf(deviceInstanceId.c_str(), "USB\\VID_%04X&PID_%04X\\%s", &vid, &pid, serial.data());
 
-    m_VendorId = static_cast<uint16_t>(vid);
-    m_ProductId = static_cast<uint16_t>(pid);
+    //m_VendorId = static_cast<uint16_t>(vid);
+    //m_ProductId = static_cast<uint16_t>(pid);
 
     size_t serialLen = ::strlen(serial.data());
     if (serialLen <= 12)
@@ -357,6 +361,10 @@ bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
                 m_SerialNumberString.push_back(serial[i]);
         }
     }
+
+    m_VendorId = m_UsbVendorId;
+    m_ProductId = m_UsbProductId;
+    m_VersionNumber = m_UsbVersionNumber;
 
     return true;
 }
@@ -405,4 +413,3 @@ bool RawInputDeviceHid::QueryBluetoothLEDeviceInfo()
 
     return !m_ProductString.empty();
 }
-
