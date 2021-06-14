@@ -71,13 +71,6 @@ bool RawInputDeviceHid::QueryDeviceInfo()
         return false;
     }
 
-    // optional XInput device info
-    if (QueryXInputDeviceInterface() && !QueryXInputDeviceInfo())
-    {
-        DBGPRINT("Cannot get XInput info from '%s' interface.", m_XInputInterfacePath.c_str());
-        return false;
-    }
-
     // optional Xbox One GIP device info
     if (QueryXboxGIPDeviceInterface() && !QueryXboxGIPDeviceInfo())
     {
@@ -260,9 +253,6 @@ bool RawInputDeviceHid::QueryXInputDeviceInfo()
         return false;
 
     std::string deviceInstanceId = GetDeviceFromInterface(m_XInputInterfacePath);
-    DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
-
-    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Manufacturer, DEVPROP_TYPE_STRING));
 
     ScopedHandle XInputInterfaceHandle = OpenDeviceInterface(m_XInputInterfacePath);
 
@@ -381,10 +371,6 @@ bool RawInputDeviceHid::QueryBluetoothLEDeviceInterface()
     if (tmp.find("{00001812-0000-1000-8000-00805f9b34fb}") == stringutils::ci_string::npos)
         return false;
 
-    // Bluetooth LE device interface GUID
-    // {781AEE18-7733-4CE4-ADD0-91F41C67B592}
-    static constexpr GUID GUID_BLUETOOTHLE_DEVICE_INTERFACE = { 0x781AEE18, 0x7733, 0x4CE4, { 0xAD, 0xD0, 0x91, 0xF4, 0x1C, 0x67, 0xB5, 0x92 } };
-
     // Bluetooth LE Service device interface GUID
     // {6e3bb679-4372-40c8-9eaa-4509df260cd8}
     static constexpr GUID GUID_BLUETOOTH_GATT_SERVICE_DEVICE_INTERFACE = { 0x6e3bb679, 0x4372, 0x40c8, { 0x9e, 0xaa, 0x45, 0x09, 0xdf, 0x26, 0x0c, 0xd8} };
@@ -404,18 +390,18 @@ bool RawInputDeviceHid::QueryBluetoothLEDeviceInfo()
 
     m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
 
-    static constexpr DEVPROPKEY DEVPKEY_Bluetooth_DeviceManufacturer = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 4 }; // DEVPROP_TYPE_STRING
-    static constexpr DEVPROPKEY DEVPKEY_Bluetooth_DeviceAddress = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 1 }; // DEVPROP_TYPE_STRING
-    static constexpr DEVPROPKEY DEVPKEY_Bluetooth_DeviceVID = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 7 }; // DEVPROP_TYPE_UINT16
-    static constexpr DEVPROPKEY DEVPKEY_Bluetooth_DevicePID = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 8 }; // DEVPROP_TYPE_UINT16
-    static constexpr DEVPROPKEY DEVPKEY_Bluetooth_DeviceProductVersion = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 9 }; // DEVPROP_TYPE_UINT16
+    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_DeviceAddress = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 1 }; // DEVPROP_TYPE_STRING
+    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_Manufacturer = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 4 }; // DEVPROP_TYPE_STRING
+    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_VendorId = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 7 }; // DEVPROP_TYPE_UINT16
+    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_ProductId = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 8 }; // DEVPROP_TYPE_UINT16
+    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_ProductVersion = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 9 }; // DEVPROP_TYPE_UINT16
 
-    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Bluetooth_DeviceManufacturer, DEVPROP_TYPE_STRING));
-    m_SerialNumberString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Bluetooth_DeviceAddress, DEVPROP_TYPE_STRING));
+    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_Manufacturer, DEVPROP_TYPE_STRING));
+    m_SerialNumberString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_DeviceAddress, DEVPROP_TYPE_STRING));
 
-    m_VendorId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Bluetooth_DeviceVID, DEVPROP_TYPE_UINT16));
-    m_ProductId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Bluetooth_DevicePID, DEVPROP_TYPE_UINT16));
-    m_VersionNumber = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Bluetooth_DeviceProductVersion, DEVPROP_TYPE_UINT16));
+    m_VendorId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_VendorId, DEVPROP_TYPE_UINT16));
+    m_ProductId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_ProductId, DEVPROP_TYPE_UINT16));
+    m_VersionNumber = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_ProductVersion, DEVPROP_TYPE_UINT16));
 
     return !m_ProductString.empty();
 }
