@@ -120,78 +120,14 @@ bool RawInputDevice::QueryUsbDeviceInterface()
     return !m_UsbDeviceInterface.empty();
 }
 
-namespace {
-    bool GetDeviceConnectionIndex(const ScopedHandle& hubInterfaceHandle, const std::string& usbDeviceDriverKey, ULONG* deviceConnectionIndex)
-    {
-        USB_NODE_INFORMATION hubInfo;
-        DWORD len = 0;
-
-        if (!::DeviceIoControl(hubInterfaceHandle.get(),
-            IOCTL_USB_GET_NODE_INFORMATION,
-            &hubInfo,
-            sizeof(USB_NODE_INFORMATION),
-            &hubInfo,
-            sizeof(USB_NODE_INFORMATION),
-            &len,
-            nullptr))
-        {
-            return false;
-        }
-
-        DCHECK_EQ(len, sizeof(USB_NODE_INFORMATION));
-        DCHECK_EQ(hubInfo.NodeType, UsbHub);
-
-        len = sizeof(USB_NODE_CONNECTION_DRIVERKEY_NAME);
-        std::vector<uint8_t> buffer(len, 0);
-
-        // port indices are 1 based, not 0 based
-        for (UCHAR index = 1; index <= hubInfo.u.HubInformation.HubDescriptor.bNumberOfPorts; ++index)
-        {
-            PUSB_NODE_CONNECTION_DRIVERKEY_NAME driverKey = reinterpret_cast<PUSB_NODE_CONNECTION_DRIVERKEY_NAME>(buffer.data());
-            driverKey->ConnectionIndex = index;
-
-            if (!::DeviceIoControl(hubInterfaceHandle.get(),
-                IOCTL_USB_GET_NODE_CONNECTION_DRIVERKEY_NAME,
-                driverKey,
-                len,
-                driverKey,
-                len,
-                &len,
-                nullptr))
-            {
-                continue;
-            }
-
-            if (driverKey->ActualLength > len)
-            {
-                len = driverKey->ActualLength;
-                buffer.resize(len, 0);
-                --index;
-
-                // try again with bigger buffer
-                continue;
-            }
-
-            std::string driverKeyName(utf8::narrow(driverKey->DriverKeyName,
-                (driverKey->ActualLength - sizeof(USB_NODE_CONNECTION_DRIVERKEY_NAME)) / sizeof(WCHAR) - 1));
-
-            if (driverKeyName != usbDeviceDriverKey)
-                continue;
-
-            *deviceConnectionIndex = index;
-            return true;
-        }
-
-        return false;
-    }
-}
-
 bool RawInputDevice::QueryUsbDeviceInfo()
 {
     std::string usbDeviceInstanceId = GetDeviceFromInterface(m_UsbDeviceInterface);
 
     DEVINST devNodeHandle = OpenDevNode(usbDeviceInstanceId);
-    std::string deviceDriverKey = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Driver, DEVPROP_TYPE_STRING));
+
+    // device index in parent USB hub
+    uint32_t deviceIndex = PropertyDataCast<uint32_t>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Address, DEVPROP_TYPE_UINT32));
 
     std::string usbHubInterface = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_HUB);
 
@@ -203,15 +139,11 @@ bool RawInputDevice::QueryUsbDeviceInfo()
     if (!IsValidHandle(usbHubInterfaceHandle.get()))
         return false;
 
-    ULONG index;
-    if (!GetDeviceConnectionIndex(usbHubInterfaceHandle, deviceDriverKey, &index))
-        return false;
-
     DWORD len = sizeof(USB_NODE_CONNECTION_INFORMATION);
     std::vector<uint8_t> buffer(len, 0);
 
     PUSB_NODE_CONNECTION_INFORMATION connectionInfo = reinterpret_cast<PUSB_NODE_CONNECTION_INFORMATION>(buffer.data());
-    connectionInfo->ConnectionIndex = index;
+    connectionInfo->ConnectionIndex = deviceIndex;
 
     if (!::DeviceIoControl(usbHubInterfaceHandle.get(),
         IOCTL_USB_GET_NODE_CONNECTION_INFORMATION,
