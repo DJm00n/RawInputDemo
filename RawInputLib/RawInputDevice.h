@@ -57,6 +57,9 @@ protected:
     uint16_t m_UsbVendorId = 0;
     uint16_t m_UsbProductId = 0;
     uint16_t m_UsbVersionNumber = 0;
+    std::string m_UsbDeviceManufacturer;
+    std::string m_UsbDeviceProduct;
+    std::string m_UsbDeviceSerialNumber;
 
     bool m_IsReadOnlyInterface = false;
     std::string m_HidInterfacePath;

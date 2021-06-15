@@ -21,7 +21,7 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
         DBGPRINT("  ->Its HID Device[VID:%04X,PID:%04X]: Interface: `%s`", GetVendorId(), GetProductId(), m_HidInterfacePath.c_str());
 
     if (IsUsbDevice())
-        DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%04X]: Interface: `%s`", m_UsbVendorId, m_UsbProductId, m_UsbVersionNumber, m_UsbDeviceInterface.c_str());
+        DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%04X]: Manufacturer: '%s', Product: '%s', Serial Number: `%s`, Interface: `%s`", m_UsbVendorId, m_UsbProductId, m_UsbVersionNumber, m_UsbDeviceManufacturer.c_str(), m_UsbDeviceProduct.c_str(), m_UsbDeviceSerialNumber.c_str(), m_UsbDeviceInterface.c_str());
 }
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
