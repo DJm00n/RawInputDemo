@@ -181,6 +181,22 @@ namespace
         return true;
     }
 
+    bool GetUsbConfigurationDescriptor(const ScopedHandle& usbHubHandle, ULONG connectionIndex, UCHAR configurationIndex, USB_CONFIGURATION_DESCRIPTOR& outConfigurationDescriptor)
+    {
+        std::unique_ptr<uint8_t[]> buffer = GetUsbDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, sizeof(USB_CONFIGURATION_DESCRIPTOR), configurationIndex, 0);
+        if (!buffer)
+            return false;
+
+        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get());
+
+        if (commonDescriptor->bDescriptorType != USB_CONFIGURATION_DESCRIPTOR_TYPE)
+            return false;
+
+        std::memcpy(&outConfigurationDescriptor, commonDescriptor, commonDescriptor->bLength);
+
+        return true;
+    }
+
     bool GetUsbDeviceString(const ScopedHandle& usbHubHandle, ULONG connectionIndex, UCHAR stringIndex, USHORT languageID, std::wstring& outString)
     {
         if (!stringIndex && languageID)
@@ -199,6 +215,109 @@ namespace
         outString.assign(stringDescriptor->bString, count);
 
         return true;
+    }
+
+    bool GetUsbHidReportDescriptor(const ScopedHandle& usbHubHandle, ULONG connectionIndex, std::vector<uint8_t>& outReportDescriptor)
+    {
+        // https://www.usb.org/document-library/device-class-definition-hid-111
+        // 7.1  Standard Requests
+        // When a Get_Descriptor(Configuration) request is issued, it
+        // returns the Configuration descriptor, all Interface descriptors, all Endpoint
+        // descriptors, and the HID descriptor for each interface. It shall not return the
+        // String descriptor, HID Report descriptor or any of the optional HID class
+        // descriptors. The HID descriptor shall be interleaved between the Interface and
+        // Endpoint descriptors for HID Interfaces. That is, the order shall be:
+        //
+        // Configuration descriptor
+        // Interface descriptor (specifying HID Class)
+        //     HID descriptor (associated with above Interface)
+        //         Endpoint descriptor (for HID Interrupt In Endpoint)
+        //         Optional Endpoint descriptor (for HID Interrupt Out Endpoint)
+
+        const UCHAR configurationIndex = 0;
+        USB_CONFIGURATION_DESCRIPTOR configurationDescriptor;
+        if (!GetUsbConfigurationDescriptor(usbHubHandle, connectionIndex, configurationIndex, configurationDescriptor))
+            return false;
+
+        // get full configuration descriptor
+        const USHORT size = configurationDescriptor.wTotalLength;
+        std::unique_ptr<uint8_t[]> buffer = GetUsbDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, size, configurationIndex, 0);
+
+        if (!buffer)
+            return false;
+
+        for (size_t offset = 0; offset < size; offset += reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get() + offset)->bLength)
+        {
+            if (reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get() + offset)->bDescriptorType != USB_INTERFACE_DESCRIPTOR_TYPE)
+                continue;
+
+            PUSB_INTERFACE_DESCRIPTOR interfaceDescriptor = reinterpret_cast<PUSB_INTERFACE_DESCRIPTOR>(buffer.get() + offset);
+
+            if (interfaceDescriptor->bInterfaceClass != USB_DEVICE_CLASS_HUMAN_INTERFACE)
+                continue;
+
+            // 4.2  Subclass
+            // 0       No Subclass
+            // 1       Boot Interface Subclass
+            // 2 - 255 Reserved
+            if (interfaceDescriptor->bInterfaceSubClass != 0)
+                continue;
+
+            // 4.3  Protocols
+            // 0       None
+            // 1       Keyboard
+            // 2       Mouse
+            // 3 - 255 Reserved
+            if (interfaceDescriptor->bInterfaceProtocol != 0)
+                continue;
+
+            offset += interfaceDescriptor->bLength;
+
+            CHECK_LE(offset, size);
+
+            // Codes for HID-specific descriptor types
+            constexpr UCHAR HID_HID_DESCRIPTOR_TYPE = 0x21;
+            constexpr UCHAR HID_REPORT_DESCRIPTOR_TYPE = 0x22;
+
+#include <pshpack1.h>
+            typedef struct _HID_DESCRIPTOR
+            {
+                UCHAR   bLength;
+                UCHAR   bDescriptorType;
+                USHORT  bcdHID;
+                UCHAR   bCountry;
+                UCHAR   bNumDescriptors;
+
+                struct _HID_DESCRIPTOR_DESC_LIST {
+                    UCHAR   bReportType;
+                    USHORT  wReportLength;
+                } DescriptorList[1];
+
+            } HID_DESCRIPTOR, * PHID_DESCRIPTOR;
+#include <poppack.h>
+
+            PHID_DESCRIPTOR hidDescriptor = reinterpret_cast<PHID_DESCRIPTOR>(buffer.get() + offset);
+
+            CHECK_EQ(hidDescriptor->bDescriptorType, HID_HID_DESCRIPTOR_TYPE);
+
+            CHECK_GE(hidDescriptor->bNumDescriptors, 1);
+
+            CHECK_EQ(hidDescriptor->DescriptorList[0].bReportType, HID_REPORT_DESCRIPTOR_TYPE);
+            CHECK_NE(hidDescriptor->DescriptorList[0].wReportLength, 0);
+
+            // According to HID spec we need to do Report Descriptor request with
+            // bmRequest set to 0x81 (Interface_In) but seems its also working with 0x80 for some reason
+            const USHORT hidReportDescriptorSize = hidDescriptor->DescriptorList[0].wReportLength;
+            std::unique_ptr<uint8_t[]> hidReportDescriptor = GetUsbDescriptor(usbHubHandle, connectionIndex, HID_REPORT_DESCRIPTOR_TYPE, hidReportDescriptorSize, 0, interfaceDescriptor->bInterfaceNumber);
+
+            CHECK(hidReportDescriptor.get());
+
+            outReportDescriptor.assign(hidReportDescriptor.get(), hidReportDescriptor.get() + hidReportDescriptorSize);
+
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -242,6 +361,8 @@ bool RawInputDevice::QueryUsbDeviceInfo()
 
     if (GetUsbDeviceString(usbHubInterfaceHandle, deviceIndex, deviceDescriptor.iSerialNumber, languageID, stringBuffer))
         m_UsbDeviceSerialNumber = utf8::narrow(stringBuffer);
+
+    GetUsbHidReportDescriptor(usbHubInterfaceHandle, deviceIndex, m_UsbHidReportDescriptor);
 
     return true;
 }
@@ -293,4 +414,38 @@ bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceIn
     DCHECK_EQ(size, result);
 
     return true;
+}
+
+namespace
+{
+    void HexDump(const uint8_t* src, size_t len) {
+        std::array<char, 1024> formatted;
+        for (size_t i = 0; i < len; i++) {
+            if (i % 8 == 0) {
+                snprintf(formatted.data(), 1024, "%04x ", uint32_t(i));
+                ::OutputDebugStringA(formatted.data());
+            }
+
+            //printf("%02x ", src[i]);
+            snprintf(formatted.data(), 1024, "%02x ", src[i]);
+            ::OutputDebugStringA(formatted.data());
+
+            if ((i + 1) % 8 == 0)
+            {
+                //printf("\n");
+                ::OutputDebugStringA("\n");
+            }
+        }
+        //printf("\n");
+        ::OutputDebugStringA("\n");
+    }
+}
+
+void RawInputDevice::DumpHidDescriptor()
+{
+    if (!m_UsbHidReportDescriptor.empty())
+    {
+        ::OutputDebugStringA("  ->HID Report Descriptor Dump:\n");
+        HexDump(m_UsbHidReportDescriptor.data(), m_UsbHidReportDescriptor.size());
+    }
 }
