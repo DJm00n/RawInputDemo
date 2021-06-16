@@ -47,6 +47,8 @@ protected:
     // (RIDI_DEVICEINFO). nullptr on failure.
     static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
 
+    void DumpHidDescriptor();
+
     // Raw input device handle
     HANDLE m_Handle = INVALID_HANDLE_VALUE;
 
@@ -60,6 +62,7 @@ protected:
     std::string m_UsbDeviceManufacturer;
     std::string m_UsbDeviceProduct;
     std::string m_UsbDeviceSerialNumber;
+    std::vector<uint8_t> m_UsbHidReportDescriptor;
 
     bool m_IsReadOnlyInterface = false;
     std::string m_HidInterfacePath;

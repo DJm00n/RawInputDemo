@@ -19,6 +19,8 @@ RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
 
     if (IsUsbDevice())
         DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%04X]: Manufacturer: '%s', Product: '%s', Serial Number: `%s`, Interface: `%s`", m_UsbVendorId, m_UsbProductId, m_UsbVersionNumber, m_UsbDeviceManufacturer.c_str(), m_UsbDeviceProduct.c_str(), m_UsbDeviceSerialNumber.c_str(), m_UsbDeviceInterface.c_str());
+
+    DumpHidDescriptor();
 }
 
 RawInputDeviceMouse::~RawInputDeviceMouse()
