@@ -154,19 +154,13 @@ namespace
             return nullptr;
         }
 
-        if (writtenSize < sizeof(USB_COMMON_DESCRIPTOR))
+        if (descriptorSize < (writtenSize - sizeof(USB_DESCRIPTOR_REQUEST)))
             return nullptr;
 
-        PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(request->Data);
+        writtenSize -= sizeof(USB_DESCRIPTOR_REQUEST);
 
-        if (commonDescriptor->bDescriptorType != descriptorType)
-            return nullptr;
-
-        if (commonDescriptor->bLength != (writtenSize - sizeof(USB_DESCRIPTOR_REQUEST)))
-            return nullptr;
-
-        std::unique_ptr<uint8_t[]> retBuffer(std::make_unique<uint8_t[]>(commonDescriptor->bLength));
-        std::memcpy(retBuffer.get(), commonDescriptor, commonDescriptor->bLength);
+        std::unique_ptr<uint8_t[]> retBuffer(std::make_unique<uint8_t[]>(writtenSize));
+        std::memcpy(retBuffer.get(), request->Data, writtenSize);
 
         return retBuffer;
     }
@@ -177,9 +171,13 @@ namespace
         if (!buffer)
             return false;
 
-        const PUSB_DEVICE_DESCRIPTOR deviceDescriptor = reinterpret_cast<PUSB_DEVICE_DESCRIPTOR>(buffer.get());
+        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get());
 
-        std::memcpy(&outDeviceDescriptor, deviceDescriptor, deviceDescriptor->bLength);
+        if (commonDescriptor->bDescriptorType != USB_DEVICE_DESCRIPTOR_TYPE)
+            return false;
+
+        std::memcpy(&outDeviceDescriptor, commonDescriptor, commonDescriptor->bLength);
+
 
         return true;
     }
