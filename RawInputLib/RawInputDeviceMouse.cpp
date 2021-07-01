@@ -13,14 +13,6 @@ RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     m_IsValid = QueryDeviceInfo();
 
     DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
-
-    if (IsHidDevice())
-        DBGPRINT("  ->Its HID Device[VID:%04X,PID:%04X,VER:%s]: Interface: `%s`", GetVendorId(), GetProductId(), stringutils::BCDVersionToString(GetVersionNumber()).c_str(), m_HidInterfacePath.c_str());
-
-    if (IsUsbDevice())
-        DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%s]: Manufacturer: '%s', Product: '%s', Serial Number: `%s`, Interface: `%s`", m_UsbVendorId, m_UsbProductId, stringutils::BCDVersionToString(m_UsbVersionNumber).c_str(), m_UsbDeviceManufacturer.c_str(), m_UsbDeviceProduct.c_str(), m_UsbDeviceSerialNumber.c_str(), m_UsbDeviceInterface.c_str());
-
-    DumpHidDescriptor();
 }
 
 RawInputDeviceMouse::~RawInputDeviceMouse()
@@ -106,12 +98,6 @@ bool RawInputDeviceMouse::QueryDeviceInfo()
         DBGPRINT("Cannot get Raw Input Mouse info from '%s'.", m_InterfacePath.c_str());
         return false;
     }
-
-    /*if (IsValidHandle(m_RawInputInfo.m_InterfaceHandle.get()))
-    {
-        PHIDP_PREPARSED_DATA pp_data = NULL;
-        auto res = HidD_GetPreparsedData(m_RawInputInfo.m_InterfaceHandle.get(), &pp_data);
-    }*/
 
     return true;
 }

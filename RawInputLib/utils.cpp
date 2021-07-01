@@ -127,6 +127,7 @@ VOID DebugPrint(const char* function_name, unsigned int line_number, const char*
     va_end(args);
 
     ::OutputDebugStringA(fmt::format("[{}:{}] {}\n", function_name, line_number, formatted.data()).c_str());
+    //fmt::print("{}\n", formatted.data());
 }
 #endif
 

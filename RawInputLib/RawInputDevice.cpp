@@ -415,37 +415,3 @@ bool RawInputDevice::QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceIn
 
     return true;
 }
-
-namespace
-{
-    void HexDump(const uint8_t* src, size_t len) {
-        std::array<char, 1024> formatted;
-        for (size_t i = 0; i < len; i++) {
-            if (i % 8 == 0) {
-                snprintf(formatted.data(), 1024, "%04x ", uint32_t(i));
-                ::OutputDebugStringA(formatted.data());
-            }
-
-            //printf("%02x ", src[i]);
-            snprintf(formatted.data(), 1024, "%02x ", src[i]);
-            ::OutputDebugStringA(formatted.data());
-
-            if ((i + 1) % 8 == 0)
-            {
-                //printf("\n");
-                ::OutputDebugStringA("\n");
-            }
-        }
-        //printf("\n");
-        ::OutputDebugStringA("\n");
-    }
-}
-
-void RawInputDevice::DumpHidDescriptor()
-{
-    if (!m_UsbHidReportDescriptor.empty())
-    {
-        ::OutputDebugStringA("  ->HID Report Descriptor Dump:\n");
-        HexDump(m_UsbHidReportDescriptor.data(), m_UsbHidReportDescriptor.size());
-    }
-}

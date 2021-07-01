@@ -10,6 +10,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RawInputDemo", "RawInputDem
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RawInputLib", "RawInputLib\RawInputLib.vcxproj", "{DA414FD8-7A95-47D5-91D8-1041E56A95F5}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RawInputInfo", "RawInputInfo\RawInputInfo.vcxproj", "{8016612B-D252-42D9-BFB0-9A4DD73B4020}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -34,6 +36,14 @@ Global
 		{DA414FD8-7A95-47D5-91D8-1041E56A95F5}.Release|x64.Build.0 = Release|x64
 		{DA414FD8-7A95-47D5-91D8-1041E56A95F5}.Release|x86.ActiveCfg = Release|Win32
 		{DA414FD8-7A95-47D5-91D8-1041E56A95F5}.Release|x86.Build.0 = Release|Win32
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Debug|x64.ActiveCfg = Debug|x64
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Debug|x64.Build.0 = Debug|x64
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Debug|x86.ActiveCfg = Debug|Win32
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Debug|x86.Build.0 = Debug|Win32
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Release|x64.ActiveCfg = Release|x64
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Release|x64.Build.0 = Release|x64
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Release|x86.ActiveCfg = Release|Win32
+		{8016612B-D252-42D9-BFB0-9A4DD73B4020}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

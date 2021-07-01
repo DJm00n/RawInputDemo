@@ -22,12 +22,19 @@ public:
 
     std::string GetManufacturerString() const { return m_ManufacturerString; }
     std::string GetProductString() const { return m_ProductString; }
-    bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
+    std::string GetSerialNumberString() const { return m_SerialNumberString; }
+
     uint16_t GetVendorId() const { return m_VendorId; }
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
     bool IsUsbDevice() const { return !m_UsbDeviceInterface.empty(); }
+
+    std::string GetUsbInterfacePath() const { return m_UsbDeviceInterface; }
+
+    bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
+    std::string GetHidInterfacePath() const { return m_HidInterfacePath; }
+    const std::vector<uint8_t>& GetHidReportDescriptor() const { return m_UsbHidReportDescriptor; }
 
 protected:
     RawInputDevice(HANDLE handle);
@@ -46,8 +53,6 @@ protected:
 
     // (RIDI_DEVICEINFO). nullptr on failure.
     static bool QueryRawDeviceInfo(HANDLE handle, RID_DEVICE_INFO* deviceInfo);
-
-    void DumpHidDescriptor();
 
     // Raw input device handle
     HANDLE m_Handle = INVALID_HANDLE_VALUE;
