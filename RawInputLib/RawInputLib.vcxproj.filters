@@ -42,6 +42,9 @@
     <ClInclude Include="SetupApiWrapper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="keycodeconverter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -65,8 +68,14 @@
     <ClCompile Include="utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="keycodeconverter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="dom_code_data.inc">
+      <Filter>Header Files</Filter>
+    </None>
   </ItemGroup>
 </Project>
