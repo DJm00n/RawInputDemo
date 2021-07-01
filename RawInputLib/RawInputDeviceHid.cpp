@@ -22,21 +22,7 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New HID device[VID:%04X,PID:%04X,VER:%s][UP:%04X,U:%04X]: Manufacturer: '%s', Product: '%s', Interface: `%s`", GetVendorId(), GetProductId(), stringutils::BCDVersionToString(GetVersionNumber()).c_str(), GetUsagePage(), GetUsageId(), GetManufacturerString().c_str(), GetProductString().c_str(), GetInterfacePath().c_str());
-
-    if (IsXInputDevice())
-        DBGPRINT("  ->Its XInput Device[UserID:%d]: Interface: `%s`", GetXInputUserIndex(),GetXInputInterfacePath().c_str());
-
-    if (IsXboxGipDevice())
-        DBGPRINT("  ->Its Xbox One GIP Device[Serial:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_XboxGipInterfacePath.c_str());
-
-    if (IsBluetoothLEDevice())
-        DBGPRINT("  ->Its BluetoothLE Device[MAC:%s]: Interface: `%s`", m_SerialNumberString.c_str(), m_BluetoothLEInterfacePath.c_str());
-
-    if (IsUsbDevice())
-        DBGPRINT("  ->Its USB Device[VID:%04X,PID:%04X,VER:%s]: Manufacturer: '%s', Product: '%s', Serial Number: `%s`, Interface: `%s`", m_UsbVendorId, m_UsbProductId, stringutils::BCDVersionToString(m_UsbVersionNumber).c_str(), m_UsbDeviceManufacturer.c_str(), m_UsbDeviceProduct.c_str(), m_UsbDeviceSerialNumber.c_str(), m_UsbDeviceInterface.c_str());
-
-    DumpHidDescriptor();
+    DBGPRINT("New HID device Interface: %s", GetInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()

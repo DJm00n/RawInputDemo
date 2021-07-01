@@ -2,6 +2,8 @@
 
 #include "RawInputDevice.h"
 
+#include <array>
+
 class RawInputDeviceKeyboard : public RawInputDevice
 {
     friend class RawInputDeviceFactory<RawInputDeviceKeyboard>;

@@ -28,8 +28,10 @@ public:
     std::string GetXInputInterfacePath() const { return m_XInputInterfacePath; }
 
     bool IsXboxGipDevice() const { return !m_XboxGipInterfacePath.empty(); }
+    std::string GetXboxGipInterfacePath() const { return m_XboxGipInterfacePath; }
 
     bool IsBluetoothLEDevice() const { return !m_BluetoothLEInterfacePath.empty(); }
+    std::string GetBluetoothLEInterfacePath() const { return m_BluetoothLEInterfacePath; }
 
 protected:
     RawInputDeviceHid(HANDLE handle);

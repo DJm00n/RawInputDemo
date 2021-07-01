@@ -55,25 +55,6 @@ namespace stringutils
     };
 
     typedef std::basic_string<char, ci_char_traits> ci_string;
-
-    inline std::string BCDVersionToString(uint16_t bcd)
-    {
-        uint8_t major1 = ((bcd & (0xf << 16)) >> 16);
-        uint8_t major2 = ((bcd & (0xf << 8)) >> 8);
-        uint8_t minor1 = ((bcd & (0xf << 4)) >> 4);
-        uint8_t minor2 = ((bcd & (0xf << 0)) >> 0);
-
-        std::string ver;
-        if (major1)
-            ver += std::to_string(major1);
-
-        ver += std::to_string(major2);
-        ver.append(1, '.');
-        ver += std::to_string(minor1);
-        ver += std::to_string(minor2);
-
-        return ver;
-    }
 }
 
 inline bool IsValidHandle(void* handle)
