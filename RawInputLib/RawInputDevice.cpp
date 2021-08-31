@@ -138,7 +138,7 @@ namespace
         request->SetupPacket.bRequest = 0x06; // Get_Descriptor
         request->SetupPacket.wValue = (descriptorType << 8) | descriptorIndex;
         request->SetupPacket.wIndex = descriptorParam;
-        request->SetupPacket.wLength = static_cast<USHORT>(buffer.size());
+        request->SetupPacket.wLength = static_cast<USHORT>(buffer.size() - sizeof(USB_DESCRIPTOR_REQUEST));
 
         ULONG writtenSize = 0;
 
@@ -177,7 +177,6 @@ namespace
             return false;
 
         std::memcpy(&outDeviceDescriptor, commonDescriptor, commonDescriptor->bLength);
-
 
         return true;
     }
