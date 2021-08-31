@@ -30,28 +30,37 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
 
     const RAWMOUSE& rawMouse = input->data.mouse;
 
-    if ((rawMouse.usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE)
+    if (rawMouse.usFlags & MOUSE_MOVE_ABSOLUTE)
     {
+        //// If MOUSE_VIRTUAL_DESKTOP was specified, map to entire virtual screen
         //bool isVirtualDesktop = (rawMouse.usFlags & MOUSE_VIRTUAL_DESKTOP) == MOUSE_VIRTUAL_DESKTOP;
 
-        //int width = GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
-        //int height = GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
+        //uint32_t width = ::GetSystemMetrics(isVirtualDesktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
+        //uint32_t height = ::GetSystemMetrics(isVirtualDesktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
 
-        //int absoluteX = static_cast<int>((rawMouse.lLastX / static_cast<float>(USHRT_MAX)) * width);
-        //int absoluteY = static_cast<int>((rawMouse.lLastY / static_cast<float>(USHRT_MAX)) * height);
+        //uint32_t absoluteX = (rawMouse.lLastX * width) / USHRT_MAX;
+        //uint32_t absoluteY = (rawMouse.lLastY * height) / USHRT_MAX;
+
+        //// (0, 0) must map to the leftmost point on the desktop
+        //if (isVirtualDesktop)
+        //{
+        //    absoluteX += ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+        //    absoluteY += ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+        //}
 
         //DBGPRINT("AbsoluteMove absoluteX=%d, absoluteY=%d\n", absoluteX, absoluteY);
     }
-    else if (rawMouse.lLastX != 0 && rawMouse.lLastY != 0)
+    else if (rawMouse.lLastX ||
+             rawMouse.lLastY)
     {
-        //int relativeX = rawMouse.lLastX;
-        //int relativeY = rawMouse.lLastY;
+        //int32_t relativeX = rawMouse.lLastX;
+        //int32_t relativeY = rawMouse.lLastY;
 
         //DBGPRINT("RelativeMove relativeX=%d, relativeY=%d\n", relativeX, relativeY);
     }
 
-    if ((rawMouse.usButtonFlags & RI_MOUSE_WHEEL) == RI_MOUSE_WHEEL ||
-        (rawMouse.usButtonFlags & RI_MOUSE_HWHEEL) == RI_MOUSE_HWHEEL)
+    if ((rawMouse.usButtonFlags & RI_MOUSE_WHEEL) ||
+        (rawMouse.usButtonFlags & RI_MOUSE_HWHEEL))
     {
         static const unsigned long defaultScrollLinesPerWheelDelta = 3;
         static const unsigned long defaultScrollCharsPerWheelDelta = 1;
