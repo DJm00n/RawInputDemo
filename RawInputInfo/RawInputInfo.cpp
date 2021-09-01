@@ -16,6 +16,9 @@ RawInputDeviceManager rawDeviceManager;
 
 
 void HexDump(const uint8_t* src, size_t len) {
+    if (!len)
+        printf("Empty ");
+
     for (size_t i = 0; i < len; i++) {
         if (i % 8 == 0) {
             //printf("%04x ", uint32_t(i));
@@ -94,13 +97,10 @@ void DumpDeviceInfo(const RawInputDevice* device)
 
     if (device->IsHidDevice())
     {
-        const std::vector<uint8_t>&  hidDesc = device->GetHidReportDescriptor();
+        const std::vector<uint8_t>& hidDesc = device->GetHidReportDescriptor();
 
-        if (!hidDesc.empty())
-        {
-            fmt::print("  ->HID Report Descriptor Dump:\n");
-            HexDump(hidDesc.data(), hidDesc.size());
-        }
+        fmt::print("  ->HID Report Descriptor Dump: \n");
+        HexDump(hidDesc.data(), hidDesc.size());
     }
 
     if (device->IsUsbDevice())
