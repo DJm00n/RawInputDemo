@@ -17,12 +17,12 @@ RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    //DBGPRINT("New Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
 {
-    DBGPRINT("Removed Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    //DBGPRINT("Removed Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
 void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
@@ -43,9 +43,16 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     else if ((keyboard.Flags & RI_KEY_E1) == RI_KEY_E1)
         nativeKeyCode |= (0xe1 << 8);
 
-    uint32_t usbKeyCode = KeycodeConverter::NativeKeycodeToUsbKeycode(nativeKeyCode);
 
-    DBGPRINT("Keyboard %s '%s'\n", keyBreak ? "press" : "release", KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode));
+    // fixup for NumLock key
+    if (keyboard.VKey == VK_NUMLOCK)
+        nativeKeyCode |= (0xe0 << 8);
+
+    uint32_t usbKeyCode = KeycodeConverter::NativeKeycodeToUsbKeycode(nativeKeyCode);
+    const char* keyName = KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode);
+
+    if (strlen(keyName))
+        DBGPRINT("Keyboard %s '%s'\n", keyBreak ? "release" : "press", keyName);
 
 }
 

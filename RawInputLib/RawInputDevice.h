@@ -28,9 +28,9 @@ public:
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
-    bool IsUsbDevice() const { return !m_UsbDeviceInterface.empty(); }
+    bool IsUsbDevice() const { return !m_UsbDeviceInterfacePath.empty(); }
 
-    std::string GetUsbInterfacePath() const { return m_UsbDeviceInterface; }
+    std::string GetUsbInterfacePath() const { return m_UsbDeviceInterfacePath; }
 
     bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
     std::string GetHidInterfacePath() const { return m_HidInterfacePath; }
@@ -60,7 +60,9 @@ protected:
     std::string m_InterfacePath;
     ScopedHandle m_InterfaceHandle;
 
-    std::string m_UsbDeviceInterface;
+    std::string m_UsbDeviceInterfacePath;
+    uint8_t m_UsbDeviceInterfaceNumber = 0;
+
     uint16_t m_UsbVendorId = 0;
     uint16_t m_UsbProductId = 0;
     uint16_t m_UsbVersionNumber = 0;

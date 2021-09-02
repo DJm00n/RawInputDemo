@@ -31,7 +31,7 @@ bool RawInputDevice::QueryDeviceInfo()
 
     if (QueryUsbDeviceInterface() && !QueryUsbDeviceInfo())
     {
-        DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDeviceInterface.c_str());
+        DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDeviceInterfacePath.c_str());
         return false;
     }
 
@@ -115,9 +115,9 @@ bool RawInputDevice::QueryDeviceNodeInfo()
 
 bool RawInputDevice::QueryUsbDeviceInterface()
 {
-    m_UsbDeviceInterface = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_DEVICE);
+    m_UsbDeviceInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_DEVICE);
 
-    return !m_UsbDeviceInterface.empty();
+    return !m_UsbDeviceInterfacePath.empty();
 }
 
 namespace
@@ -141,7 +141,7 @@ namespace
         request->SetupPacket.wLength = descriptorSize;
 
         if (descriptorType == 0x22 /*HID_REPORT_DESCRIPTOR_TYPE*/)
-            request->SetupPacket.bmRequest = 0x81 /*Interface_In*/; 
+            request->SetupPacket.bmRequest = 0x81 /*Interface_In*/;
 
         ULONG writtenSize = 0;
 
@@ -154,7 +154,7 @@ namespace
             &writtenSize,
             nullptr))
         {
-            DBGPRINT("DeviceIoControl(IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION) failed. GetLastError() = 0x%04x", ::GetLastError());
+            //DBGPRINT("DeviceIoControl(IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION) failed. GetLastError() = 0x%04x", ::GetLastError());
             return nullptr;
         }
 
@@ -341,29 +341,9 @@ namespace
     }
 }
 
-static inline void HexDump(const uint8_t* src, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-    {
-        if (i % 8 == 0)
-        {
-            //printf("%04x ", uint32_t(i));
-        }
-
-        printf("%02x ", src[i]);
-
-        if ((i + 1) % 8 == 0)
-        {
-            //printf("\n");
-        }
-    }
-    //printf("\n");
-    printf("(%d bytes)\n", (int)len);
-}
-
 bool RawInputDevice::QueryUsbDeviceInfo()
 {
-    std::string usbDeviceInstanceId = GetDeviceFromInterface(m_UsbDeviceInterface);
+    std::string usbDeviceInstanceId = GetDeviceFromInterface(m_UsbDeviceInterfacePath);
     DEVINST devNodeHandle = OpenDevNode(usbDeviceInstanceId);
 
     // device index in parent USB hub
@@ -376,17 +356,34 @@ bool RawInputDevice::QueryUsbDeviceInfo()
     std::vector<std::string> usbDeviceCompatibleIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_CompatibleIds, DEVPROP_TYPE_STRING_LIST));
     for (const std::string& usbCompatibleId : usbDeviceCompatibleIds)
     {
-        stringutils::ci_string tmp(usbCompatibleId.c_str(), usbCompatibleId.size());
+        stringutils::ci_string tmp(usbCompatibleId.data(), usbCompatibleId.size());
         if (tmp.find("USB\\COMPOSITE") == stringutils::ci_string::npos)
             continue;
 
         // Its Composite USB device
-        // Need to aquire interface number in parent USB device
+        // Need to acquire interface number in parent USB device
         // https://docs.microsoft.com/windows-hardware/drivers/usbcon/usb-common-class-generic-parent-driver
+
+        // According to MSDN the instance IDs for the device nodes created by the
+        // composite driver is in the form "USB\VID_vvvv&PID_dddd&MI_zz" where "zz"
+        // is the interface number.
+        //
+        // https://docs.microsoft.com/en-us/windows-hardware/drivers/install/standard-usb-identifiers#multiple-interface-usb-devices
+
         std::string usbCompositeDeviceInstanceId = GetParentDevice(m_DeviceInstanceId);
-        DEVINST usbCompositeDevNodeHandle = OpenDevNode(usbCompositeDeviceInstanceId);
-        interfaceNumber = PropertyDataCast<UCHAR>(GetDevNodeProperty(usbCompositeDevNodeHandle, &DEVPKEY_Device_Address, DEVPROP_TYPE_UINT32));
-        --interfaceNumber; // should be zero-based
+
+        tmp.assign(usbCompositeDeviceInstanceId.data(), usbCompositeDeviceInstanceId.size());
+        size_t pos = tmp.find("MI_");
+        if (pos == stringutils::ci_string::npos)
+        {
+            DBGPRINT("QueryUsbDeviceInfo() cannot get interface number");
+            return false;
+        }
+
+        unsigned int num;
+        ::sscanf(&usbCompositeDeviceInstanceId[pos], "MI_%02X", &num);
+        interfaceNumber = static_cast<UCHAR>(num);
+
         break;
     }
 
@@ -410,10 +407,6 @@ bool RawInputDevice::QueryUsbDeviceInfo()
     std::vector<uint8_t> configurationDescriptorData;
     if (!GetFullUsbConfigurationDescriptor(usbHubInterfaceHandle, deviceIndex, configurationIndex, configurationDescriptorData))
         return false;
-
-    // TMP
-    printf("USB Descriptor:\n");
-    HexDump(configurationDescriptorData.data(), configurationDescriptorData.size());
 
     // Search for interface descriptor
     PUSB_INTERFACE_DESCRIPTOR interfaceDescriptor = nullptr;

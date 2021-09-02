@@ -83,12 +83,12 @@ inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool
     return ScopedHandle(handle);
 }
 
-#ifdef _DEBUG
+//#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);
-#else
-#define DBGPRINT(format, ...) (void)0
-#endif
+//#else
+//#define DBGPRINT(format, ...) (void)0
+//#endif
 
 #define CHECK(x) \
   if (!(x)) LogMessageFatal(__FILE__, __LINE__).stream() << "Check failed: " #x

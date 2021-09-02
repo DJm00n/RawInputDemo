@@ -12,12 +12,12 @@ RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    //DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
 RawInputDeviceMouse::~RawInputDeviceMouse()
 {
-    DBGPRINT("Removed Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    //DBGPRINT("Removed Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
 void RawInputDeviceMouse::OnInput(const RAWINPUT* input)

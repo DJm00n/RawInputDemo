@@ -114,7 +114,7 @@ namespace stringutils
     }
 }
 
-#ifdef _DEBUG
+//#ifdef _DEBUG
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...)
 {
     std::array<char, 1024> formatted;
@@ -126,8 +126,8 @@ VOID DebugPrint(const char* function_name, unsigned int line_number, const char*
 
     va_end(args);
 
-    ::OutputDebugStringA(fmt::format("[{}:{}] {}\n", function_name, line_number, formatted.data()).c_str());
-    //fmt::print("{}\n", formatted.data());
+    //::OutputDebugStringA(fmt::format("[{}:{}] {}\n", function_name, line_number, formatted.data()).c_str());
+    fmt::print("{}\n", formatted.data());
 }
-#endif
+//#endif
 

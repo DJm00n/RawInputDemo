@@ -22,17 +22,41 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 {
     m_IsValid = QueryDeviceInfo();
 
-    DBGPRINT("New HID device Interface: %s", GetInterfacePath().c_str());
+    //DBGPRINT("New HID device Interface: %s", GetInterfacePath().c_str());
 }
 
 RawInputDeviceHid::~RawInputDeviceHid()
 {
-    DBGPRINT("Removed HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
+    //DBGPRINT("Removed HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
-void RawInputDeviceHid::OnInput(const RAWINPUT* /*input*/)
+inline void HexDump2(const uint8_t* src, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        fmt::print("{:02d} ", src[i]);
+    }
+    fmt::print("({} bytes)\n", (int)len);
+}
+
+void RawInputDeviceHid::OnInput(const RAWINPUT* input)
 {
     //TODO
+
+    if (input == nullptr || input->header.dwType != RIM_TYPEHID)
+    {
+        DBGPRINT("Wrong HID input.");
+        return;
+    }
+
+    const RAWHID& hid = input->data.hid;
+
+    /*for (DWORD i = 0; i < hid.dwCount; ++i)
+    {
+        size_t reportSize = hid.dwSizeHid;
+        const uint8_t* report = (hid.bRawData + (i * reportSize));
+
+        fmt::print("HID Input Report:\n");
+        HexDump2(report, reportSize);
+    }*/
 }
 
 bool RawInputDeviceHid::QueryDeviceInfo()
@@ -76,6 +100,15 @@ bool RawInputDeviceHid::QueryDeviceInfo()
         DBGPRINT("Cannot get Bluetooth LE info from '%s' interface.", m_BluetoothLEInterfacePath.c_str());
         return false;
     }
+
+    std::string parentDeviceInstanceId = GetParentDevice(m_DeviceInstanceId);
+    parentDeviceInstanceId = GetParentDevice(parentDeviceInstanceId);
+    DEVINST devNodeHandle = OpenDevNode(parentDeviceInstanceId);
+    auto deviceStack = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Stack, DEVPROP_TYPE_STRING_LIST));
+
+    auto busTypeGuid = PropertyDataCast<GUID>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_BusTypeGuid, DEVPROP_TYPE_GUID));
+
+    auto devClass = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
 
     return true;
 }
