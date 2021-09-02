@@ -95,19 +95,24 @@ void DumpDeviceInfo(const RawInputDevice* device)
         }
     }
 
-    if (device->IsHidDevice())
-    {
-        const std::vector<uint8_t>& hidDesc = device->GetHidReportDescriptor();
 
-        fmt::print("  ->HID Report Descriptor Dump: \n");
-        HexDump(hidDesc.data(), hidDesc.size());
-    }
 
     if (device->IsUsbDevice())
     {
         fmt::print("It have USB Device Interface: {}\n", device->GetUsbInterfacePath());
 
+        const std::vector<uint8_t>& configurationDesc = device->GetUsbConfigurationDescriptor();
 
+        fmt::print("  ->USB Configuration Descriptor Dump: \n");
+        HexDump(configurationDesc.data(), configurationDesc.size());
+
+        if (device->IsHidDevice())
+        {
+            const std::vector<uint8_t>& hidDesc = device->GetUsbHidReportDescriptor();
+
+            fmt::print("  ->HID Report Descriptor Dump: \n");
+            HexDump(hidDesc.data(), hidDesc.size());
+        }
     }
 
     fmt::print("--------------------------\n");

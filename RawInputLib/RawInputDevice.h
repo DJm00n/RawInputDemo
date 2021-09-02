@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include "UsbDevice.h"
+
 #include <memory>
 #include <string>
 
@@ -28,13 +30,15 @@ public:
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
-    bool IsUsbDevice() const { return !m_UsbDeviceInterfacePath.empty(); }
+    bool IsUsbDevice() const { return m_UsbDevice && !m_UsbDevice->m_UsbDeviceInterfacePath.empty(); }
 
-    std::string GetUsbInterfacePath() const { return m_UsbDeviceInterfacePath; }
+    std::string GetUsbInterfacePath() const { return m_UsbDevice->m_UsbDeviceInterfacePath; }
 
     bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
     std::string GetHidInterfacePath() const { return m_HidInterfacePath; }
-    const std::vector<uint8_t>& GetHidReportDescriptor() const { return m_UsbHidReportDescriptor; }
+
+    const std::vector<uint8_t>& GetUsbConfigurationDescriptor() const { return m_UsbDevice->m_ConfigurationDescriptor; }
+    const std::vector<uint8_t>& GetUsbHidReportDescriptor() const { return m_UsbDevice->m_HidReportDescriptor; }
 
 protected:
     RawInputDevice(HANDLE handle);
@@ -60,16 +64,7 @@ protected:
     std::string m_InterfacePath;
     ScopedHandle m_InterfaceHandle;
 
-    std::string m_UsbDeviceInterfacePath;
-    uint8_t m_UsbDeviceInterfaceNumber = 0;
-
-    uint16_t m_UsbVendorId = 0;
-    uint16_t m_UsbProductId = 0;
-    uint16_t m_UsbVersionNumber = 0;
-    std::string m_UsbDeviceManufacturer;
-    std::string m_UsbDeviceProduct;
-    std::string m_UsbDeviceSerialNumber;
-    std::vector<uint8_t> m_UsbHidReportDescriptor;
+    std::unique_ptr<UsbDeviceInfo> m_UsbDevice;
 
     bool m_IsReadOnlyInterface = false;
     std::string m_HidInterfacePath;

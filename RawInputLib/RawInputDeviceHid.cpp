@@ -369,7 +369,7 @@ bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
     m_ProductId = static_cast<uint16_t>(pid);
     */
 
-    std::string serial = m_UsbDeviceSerialNumber;
+    std::string serial = m_UsbDevice->m_SerialNumber;
 
     size_t serialLen = ::strlen(serial.data());
     if (serialLen <= 12)
@@ -386,9 +386,9 @@ bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
         }
     }
 
-    m_VendorId = m_UsbVendorId;
-    m_ProductId = m_UsbProductId;
-    m_VersionNumber = m_UsbVersionNumber;
+    m_VendorId = m_UsbDevice->m_VendorId;
+    m_ProductId = m_UsbDevice->m_ProductId;
+    m_VersionNumber = m_UsbDevice->m_VersionNumber;
 
     return true;
 }
