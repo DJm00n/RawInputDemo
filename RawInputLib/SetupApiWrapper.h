@@ -127,13 +127,7 @@ inline std::string GetParentDevice(const std::string& deviceInstanceId)
 {
     DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
 
-    DEVINST parentDevNodeHandle;
-    CONFIGRET cr = CM_Get_Parent(&parentDevNodeHandle, devNodeHandle, 0);
-
-    if (cr != CR_SUCCESS)
-        return {};
-
-    return PropertyDataCast<std::string>(GetDevNodeProperty(parentDevNodeHandle, &DEVPKEY_Device_InstanceId, DEVPROP_TYPE_STRING));
+    return PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Parent, DEVPROP_TYPE_STRING));
 }
 
 inline std::string SearchParentDeviceInterface(const std::string& deviceInstanceId, LPCGUID intefaceGuid)
