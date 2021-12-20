@@ -39,9 +39,17 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     uint16_t nativeKeyCode = keyboard.MakeCode;
     if ((keyboard.Flags & RI_KEY_E0) == RI_KEY_E0)
+    {
+        if (nativeKeyCode == 0x2A) //special extra scancode when pressing PrtScn
+            return;
+
         nativeKeyCode |= (0xe0 << 8);
+    }
+
     else if ((keyboard.Flags & RI_KEY_E1) == RI_KEY_E1)
+    {
         nativeKeyCode |= (0xe1 << 8);
+    }
 
 
     // fixup for NumLock key
@@ -52,8 +60,9 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     const char* keyName = KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode);
 
     if (strlen(keyName))
-        DBGPRINT("Keyboard %s '%s'\n", keyBreak ? "release" : "press", keyName);
-
+        DBGPRINT("Keyboard '%s': %s '%s'\n", GetInterfacePath().c_str(), keyBreak ? "release" : "press", keyName);
+    else
+        DBGPRINT("Keyboard '%s': %s 'SC_%x'/'VK_%x'\n", GetInterfacePath().c_str(), keyBreak ? "release" : "press", nativeKeyCode, keyboard.VKey);
 }
 
 bool RawInputDeviceKeyboard::QueryDeviceInfo()

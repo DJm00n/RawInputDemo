@@ -25,20 +25,23 @@ bool RawInputDevice::QueryDeviceInfo()
     if (!QueryRawInputDeviceInfo())
         return false;
 
-    if (IsValidHandle(m_InterfaceHandle.get()) && !QueryDeviceNodeInfo())
-        return false;
-
-    if (QueryUsbDeviceInterface() && !QueryUsbDeviceInfo())
+    if (IsValidHandle(m_InterfaceHandle.get()))
     {
-        DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDevice->m_UsbDeviceInterfacePath.c_str());
-        return false;
-    }
+        if (!QueryDeviceNodeInfo())
+            return false;
 
-    // optional HID device info
-    if (IsHidDevice() && !QueryHidDeviceInfo())
-    {
-        DBGPRINT("Cannot get HID info from '%s' interface.", m_InterfacePath.c_str());
-        return false;
+        if (QueryUsbDeviceInterface() && !QueryUsbDeviceInfo())
+        {
+            DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDevice->m_UsbDeviceInterfacePath.c_str());
+            return false;
+        }
+
+        // optional HID device info
+        if (IsHidDevice() && !QueryHidDeviceInfo())
+        {
+            DBGPRINT("Cannot get HID info from '%s' interface.", m_InterfacePath.c_str());
+            return false;
+        }
     }
 
     return true;

@@ -53,7 +53,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
     // up to 32 raw input messages (~1.5 kilobyte)
     static constexpr size_t c_InputBufferSize = (sizeof(RAWINPUT) * 32);
 
-    std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
+    alignas(8) std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
 
@@ -91,6 +91,8 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
             {
             case WM_INPUT_DEVICE_CHANGE:
             {
+                DBGPRINT("Have WM_%x message.", message);
+                // TODO properly handle GIDC_ARRIVAL/GIDC_REMOVAL
                 manager->OnInputDeviceChange();
                 return 0;
             }
