@@ -232,6 +232,29 @@ namespace
     }
 }
 
+
+// According to MSDN the instance IDs for the device nodes created by the
+// composite driver is in the form "USB\VID_vvvv&PID_dddd&MI_zz" where "zz"
+// is the interface number extracted from bInterfaceNumber field of the interface descriptor.
+// https://docs.microsoft.com/windows-hardware/drivers/install/standard-usb-identifiers#multiple-interface-usb-devices
+static bool GetInterfaceNumber(const std::string& deviceInstanceId, UCHAR& outInterfaceNumber)
+{
+    static const std::string interfaceToken("MI_");
+    stringutils::ci_string tmp(deviceInstanceId.data(), deviceInstanceId.size());
+    size_t pos = tmp.find(interfaceToken.c_str());
+    if (pos == stringutils::ci_string::npos)
+        return false;
+
+    std::string interfaceNumberStr = deviceInstanceId.substr(pos + interfaceToken.size(), 2);
+    long interfaceNumber = std::stol(interfaceNumberStr, &pos, 16);
+    if (pos != 2)
+        return false;
+
+    outInterfaceNumber = static_cast<UCHAR>(interfaceNumber);
+
+    return true;
+}
+
 UsbDeviceInfo::UsbDeviceInfo(const std::string& deviceInstanceId)
     : m_DeviceInstanceId(deviceInstanceId)
 {
@@ -248,40 +271,24 @@ UsbDeviceInfo::UsbDeviceInfo(const std::string& deviceInstanceId)
     for (const std::string& usbCompatibleId : usbDeviceCompatibleIds)
     {
         stringutils::ci_string tmp(usbCompatibleId.data(), usbCompatibleId.size());
+        // https://docs.microsoft.com/windows-hardware/drivers/usbcon/enumeration-of-the-composite-parent-device
         if (tmp.find("USB\\COMPOSITE") == stringutils::ci_string::npos)
             continue;
 
         // Its Composite USB device
         // Need to acquire interface number in parent USB device
         // https://docs.microsoft.com/windows-hardware/drivers/usbcon/usb-common-class-generic-parent-driver
-
-        // According to MSDN the instance IDs for the device nodes created by the
-        // composite driver is in the form "USB\VID_vvvv&PID_dddd&MI_zz" where "zz"
-        // is the interface number.
-        // https://docs.microsoft.com/windows-hardware/drivers/install/standard-usb-identifiers#multiple-interface-usb-devices
-
         m_UsbCompositeDeviceInstanceId = GetParentDevice(m_DeviceInstanceId);
-
-        tmp.assign(m_UsbCompositeDeviceInstanceId.data(), m_UsbCompositeDeviceInstanceId.size());
-        size_t pos = tmp.find("MI_");
-        if (pos == stringutils::ci_string::npos)
+        if (!GetInterfaceNumber(m_UsbCompositeDeviceInstanceId, m_UsbInterfaceNumber))
         {
             // Try again
             m_UsbCompositeDeviceInstanceId = GetParentDevice(m_UsbCompositeDeviceInstanceId);
-            tmp.assign(m_UsbCompositeDeviceInstanceId.data(), m_UsbCompositeDeviceInstanceId.size());
-
-            pos = tmp.find("MI_");
-            if (pos == stringutils::ci_string::npos)
+            if (!GetInterfaceNumber(m_UsbCompositeDeviceInstanceId, m_UsbInterfaceNumber))
             {
                 DBGPRINT("UsbDevice: cannot get interface number");
                 return;
             }
         }
-
-        unsigned int num;
-        ::sscanf(&m_UsbCompositeDeviceInstanceId[pos], "MI_%02X", &num);
-        m_UsbInterfaceNumber = static_cast<UCHAR>(num);
-
         break;
     }
 
