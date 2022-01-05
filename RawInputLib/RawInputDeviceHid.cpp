@@ -117,7 +117,7 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
 {
     UINT size = 0;
 
-    UINT result = ::GetRawInputDeviceInfo(m_Handle, RIDI_PREPARSEDDATA, nullptr, &size);
+    UINT result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_PREPARSEDDATA, nullptr, &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
@@ -127,7 +127,7 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
 
     m_PPDBuffer = std::make_unique<uint8_t[]>(size);
     m_PreparsedData = reinterpret_cast<PHIDP_PREPARSED_DATA>(m_PPDBuffer.get());
-    result = ::GetRawInputDeviceInfo(m_Handle, RIDI_PREPARSEDDATA, m_PPDBuffer.get(), &size);
+    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_PREPARSEDDATA, m_PPDBuffer.get(), &size);
     if (result == static_cast<UINT>(-1))
     {
         //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";

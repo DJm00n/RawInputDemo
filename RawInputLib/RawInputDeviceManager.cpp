@@ -53,7 +53,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
     // up to 32 raw input messages (~1.5 kilobyte)
     static constexpr size_t c_InputBufferSize = (sizeof(RAWINPUT) * 32);
 
-    alignas(8) std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
+    alignas(alignof(DWORD_PTR)) std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
 
@@ -288,13 +288,14 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
     }
     DCHECK_EQ(0u, result);
 
-    auto device_list = std::make_unique<RAWINPUTDEVICELIST[]>(count);
-    result = ::GetRawInputDeviceList(device_list.get(), &count, sizeof(RAWINPUTDEVICELIST));
-    if (result == static_cast<UINT>(-1))
+    std::vector<RAWINPUTDEVICELIST> device_list;
+    // The list of devices can change between calls to GetRawInputDeviceList,
+    // so call it in a loop if the function returns ERROR_INSUFFICIENT_BUFFER
+    do
     {
-        DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
-        return;
-    }
+        device_list.resize(count);
+        result = ::GetRawInputDeviceList(device_list.data(), &count, sizeof(RAWINPUTDEVICELIST));
+    } while (result == static_cast<UINT>(-1) && GetLastError() == ERROR_INSUFFICIENT_BUFFER);
 
     std::unordered_set<HANDLE> enumerated_device_handles;
     for (UINT i = 0; i < result; ++i)
