@@ -37,7 +37,6 @@ struct RawInputDeviceManager::RawInputManagerImpl
     bool Unregister();
 
     void OnInputMessage(HRAWINPUT dataHandle);
-    void OnInputBuffered();
 
     void OnInputDeviceChange();
 
@@ -49,11 +48,8 @@ struct RawInputDeviceManager::RawInputManagerImpl
     std::atomic<bool> m_Running = true;
     HANDLE m_WakeUpEvent = INVALID_HANDLE_VALUE;
     DWORD m_ParentThreadId = 0;
+    std::vector<uint8_t> m_InputBuffer;
 
-    // up to 32 raw input messages (~1.5 kilobyte)
-    static constexpr size_t c_InputBufferSize = (sizeof(RAWINPUT) * 32);
-
-    alignas(alignof(DWORD_PTR)) std::array<uint8_t, c_InputBufferSize> m_InputDataBuffer;
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
 
@@ -72,9 +68,6 @@ RawInputDeviceManager::RawInputManagerImpl::~RawInputManagerImpl()
 
 void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 {
-    // TODO do we need buffered raw input processing?
-    constexpr bool buffered = false;
-
     m_WakeUpEvent = ::CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
     CHECK(IsValidHandle(m_WakeUpEvent));
 
@@ -142,27 +135,8 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     while (m_Running)
     {
         MSG msg;
-
-        if (buffered)
-            OnInputBuffered();
-
-        while (true)
+        while (::PeekMessageW(&msg, 0, 0, 0, PM_REMOVE))
         {
-            bool haveMessage = false;
-
-            if (buffered)
-            {
-                haveMessage = ::PeekMessageW(&msg, 0, 0, WM_INPUT - 1, PM_REMOVE) ||
-                    ::PeekMessageW(&msg, 0, WM_INPUT + 1, 0, PM_REMOVE);
-            }
-            else
-            {
-                haveMessage = ::PeekMessageW(&msg, 0, 0, 0, PM_REMOVE);
-            }
-
-            if (!haveMessage)
-                break;
-
             ::DispatchMessageW(&msg);
         }
 
@@ -174,7 +148,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
         DBGPRINT("Cannot unregister raw input devices.");
 
     //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false))
-    //    DBGPRINT("Cannot deattach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
+    //    DBGPRINT("Cannot detach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
 
     if (hWnd)
         ::DestroyWindow(hWnd);
@@ -241,7 +215,10 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
     }
     DCHECK_EQ(0u, result);
 
-    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
+    if (m_InputBuffer.size() < size)
+        m_InputBuffer.resize(size);
+
+    RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.data());
 
     result = ::GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
@@ -253,28 +230,6 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
     DCHECK_EQ(size, result);
 
     OnInput(input);
-}
-
-void RawInputDeviceManager::RawInputManagerImpl::OnInputBuffered()
-{
-    while (true)
-    {
-        UINT size = static_cast<UINT>(m_InputDataBuffer.size());
-        RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputDataBuffer.data());
-
-        UINT result = ::GetRawInputBuffer(input, &size, sizeof(RAWINPUTHEADER));
-
-        if (result == 0 || result == static_cast<UINT>(-1))
-            break;
-
-        // hack for a undefined QWORD used in NEXTRAWINPUTBLOCK macro
-        using QWORD = __int64;
-
-        for (; result; result--, input = NEXTRAWINPUTBLOCK(input))
-        {
-            OnInput(input);
-        }
-    }
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
