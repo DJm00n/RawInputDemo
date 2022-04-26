@@ -33,52 +33,51 @@ static std::string GetScanCodeName(uint16_t scanCode)
     // Some extended keys doesn't work properly with GetKeyNameTextW API
     if (isExtendedKey)
     {
-        switch (scanCode)
+        const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+        switch (vkCode)
         {
-        case 0xe010: // VK_MEDIA_PREV_TRACK
-            return "Previous Track";
-        case 0xe019: // VK_MEDIA_NEXT_TRACK
-            return "Next Track";
-        case 0xe020: // VK_VOLUME_MUTE
-            return "Volume Mute";
-        case 0xe021: // VK_LAUNCH_APP2
-            return "Launch App 2";
-        case 0xe022: // VK_MEDIA_PLAY_PAUSE
-            return "Media Play/Pause";
-        case 0xe024: // VK_MEDIA_STOP
-            return "Media Stop";
-        case 0xe02e: // VK_VOLUME_DOWN
-            return "Volume Down";
-        case 0xe030: // VK_VOLUME_UP
-            return "Volume Up";
-        case 0xe032: // VK_BROWSER_HOME
-            return "Browser Home";
-        case 0xe065: // VK_BROWSER_SEARCH
-            return "Browser Search";
-        case 0xe066: // VK_BROWSER_FAVORITES
-            return "Browser Favorites";
-        case 0xe067: // VK_BROWSER_REFRESH
-            return "Browser Refresh";
-        case 0xe068: // VK_BROWSER_STOP
-            return "Browser Stop";
-        case 0xe069: // VK_BROWSER_FORWARD
-            return "Browser Forward";
-        case 0xe06a: // VK_BROWSER_BACK
+        case VK_BROWSER_BACK:
             return "Browser Back";
-        case 0xe06b: // VK_LAUNCH_APP1
-            return "Launch App 1";
-        case 0xe06c: // VK_LAUNCH_MAIL
+        case VK_BROWSER_FORWARD:
+            return "Browser Forward";
+        case VK_BROWSER_REFRESH:
+            return "Browser Refresh";
+        case VK_BROWSER_STOP:
+            return "Browser Stop";
+        case VK_BROWSER_SEARCH:
+            return "Browser Search";
+        case VK_BROWSER_FAVORITES:
+            return "Browser Favorites";
+        case VK_BROWSER_HOME:
+            return "Browser Home";
+        case VK_VOLUME_MUTE:
+            return "Volume Mute";
+        case VK_VOLUME_DOWN:
+            return "Volume Down";
+        case VK_VOLUME_UP:
+            return "Volume Up";
+        case VK_MEDIA_NEXT_TRACK:
+            return "Next Track";
+        case VK_MEDIA_PREV_TRACK:
+            return "Previous Track";
+        case VK_MEDIA_STOP:
+            return "Media Stop";
+        case VK_MEDIA_PLAY_PAUSE:
+            return "Media Play/Pause";
+        case VK_LAUNCH_MAIL:
             return "Launch Mail";
-        case 0xe06d: // VK_LAUNCH_MEDIA_SELECT
+        case VK_LAUNCH_MEDIA_SELECT:
             return "Launch Media Selector";
+        case VK_LAUNCH_APP1:
+            return "Launch App 1";
+        case VK_LAUNCH_APP2:
+            return "Launch App 2";
         }
     }
 
-    LPARAM lParam = (scanCode & 0xff) << 16;
-    lParam |= (isExtendedKey ? 1 : 0) << 24;
-
+    const LONG lParam = MAKELONG(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
     wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(static_cast<LONG>(lParam), name, sizeof(name));
+    size_t nameSize = ::GetKeyNameTextW(lParam, name, sizeof(name));
 
     return utf8::narrow(name, nameSize);
 }
