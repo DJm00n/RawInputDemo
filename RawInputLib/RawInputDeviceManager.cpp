@@ -301,16 +301,33 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
         return;
 
     HANDLE handle = input->header.hDevice;
-    if (!IsValidHandle(handle))
-        return;
-
     UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
     DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
 
     auto it = m_Devices.find(handle);
     if (it == m_Devices.end())
     {
-        DBGPRINT("Device 0x%x not found", handle);
+        // In some cases handle is not provided.
+        // Try to interpret input by its type.
+        // See https://stackoverflow.com/q/57552844
+        it = std::find_if(m_Devices.begin(), m_Devices.end(),
+            [&input](const decltype(*m_Devices.begin())& device)
+            {
+                switch (input->header.dwType)
+                {
+                case RIM_TYPEKEYBOARD:
+                    return dynamic_cast<RawInputDeviceKeyboard*>(device.second.get()) != nullptr;
+                case RIM_TYPEMOUSE:
+                    return dynamic_cast<RawInputDeviceMouse*>(device.second.get()) != nullptr;
+                default:
+                    return false;
+                }
+            });
+    }
+
+    if (it == m_Devices.end())
+    {
+        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", handle, input->header.dwType);
         return;
     }
 
