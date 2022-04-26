@@ -107,16 +107,25 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     switch (vkCode)
     {
-    case VK_PAUSE:
-        scanCode = 0x45; // was 0xe11d - known bug
-        break;
-    case VK_NUMLOCK:
-        scanCode = 0xe045; // was 0x45 - known bug
-        break;
     case VK_SHIFT:   // -> VK_LSHIFT or VK_RSHIFT
     case VK_CONTROL: // -> VK_LCONTROL or VK_RCONTROL
     case VK_MENU:    // -> VK_LMENU or VK_RMENU
         vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+        break;
+    }
+
+    constexpr uint16_t ctrlNumLockScanCode = 0xe11d;
+    constexpr uint16_t numLockScanCode = 0xe045;
+    constexpr uint16_t pauseScanCode = 0x0045;
+
+    // Some scancodes are known to be wrong (obscure Windows bug?)
+    switch (scanCode)
+    {
+    case ctrlNumLockScanCode:
+        scanCode = pauseScanCode;
+        break;
+    case pauseScanCode:
+        scanCode = numLockScanCode;
         break;
     }
 
