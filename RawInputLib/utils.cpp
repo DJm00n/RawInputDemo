@@ -115,7 +115,7 @@ namespace stringutils
 }
 
 //#ifdef _DEBUG
-VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...)
+VOID DebugPrint(const char* /*function_name*/, unsigned int /*line_number*/, const char* format, ...)
 {
     std::array<char, 1024> formatted;
 

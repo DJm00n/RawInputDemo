@@ -12,9 +12,6 @@
 #include <fmt/format.h>
 #include <algorithm>
 
-RawInputDeviceManager rawDeviceManager;
-
-
 void HexDump(const uint8_t* src, size_t len) {
     if (!len)
         printf("Empty ");
@@ -120,6 +117,8 @@ void DumpDeviceInfo(const RawInputDevice* device)
 
 int main()
 {
+    RawInputDeviceManager rawDeviceManager;
+
     std::cout << "RawInputDeviceManager is working!\n";
 
     std::vector<RawInputDevice*> devices;

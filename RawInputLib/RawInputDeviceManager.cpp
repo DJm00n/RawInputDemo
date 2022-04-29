@@ -38,7 +38,9 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     void OnInputMessage(HRAWINPUT dataHandle);
 
-    void OnInputDeviceChange();
+    void OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected);
+
+    void EnumerateDevices();
 
     void OnInput(const RAWINPUT* input);
 
@@ -71,90 +73,73 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     m_WakeUpEvent = ::CreateEventExW(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
     CHECK(IsValidHandle(m_WakeUpEvent));
 
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpszClassName = L"Message";
-    wc.lpfnWndProc = [](HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) -> LRESULT
-    {
-        RawInputManagerImpl* manager = reinterpret_cast<RawInputManagerImpl*>(GetWindowLongPtrW(hWnd, 0));
+    HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
+    HWND hWnd = ::CreateWindowExW(0, L"Static", nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, 0);
+    CHECK(IsValidHandle(hWnd));
 
-        if (manager)
+    SUBCLASSPROC subClassProc = [](HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData) -> LRESULT
+    {
+        auto manager = reinterpret_cast<RawInputManagerImpl*>(dwRefData);
+        CHECK(manager);
+
+        switch (uMsg)
         {
-            switch (message)
-            {
-            case WM_INPUT_DEVICE_CHANGE:
-            {
-                DBGPRINT("Have WM_%x message.", message);
-                // TODO properly handle GIDC_ARRIVAL/GIDC_REMOVAL
-                manager->OnInputDeviceChange();
-                return 0;
-            }
-            case WM_INPUT:
-            {
-                HRAWINPUT dataHandle = reinterpret_cast<HRAWINPUT>(lParam);
-                manager->OnInputMessage(dataHandle);
-                return 0;
-            }
-            }
+        case WM_INPUT_DEVICE_CHANGE:
+        {
+            CHECK(wParam == GIDC_ARRIVAL || wParam == GIDC_REMOVAL);
+            HANDLE deviceHandle = reinterpret_cast<HANDLE>(lParam);
+            bool isConnected = (wParam == GIDC_ARRIVAL);
+            manager->OnInputDeviceConnected(deviceHandle, isConnected);
+
+            return 0;
+        }
+        case WM_INPUT:
+        {
+            HRAWINPUT dataHandle = reinterpret_cast<HRAWINPUT>(lParam);
+            manager->OnInputMessage(dataHandle);
+
+            return 0;
+        }
         }
 
-        return ::DefWindowProcW(hWnd, message, wParam, lParam);
+        return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
     };
-    wc.cbWndExtra = sizeof(RawInputManagerImpl*); // add some space for this pointer
-    wc.hInstance = ::GetModuleHandleW(nullptr);
 
-    ATOM classAtom = ::RegisterClassExW(&wc);
-    if (classAtom == 0)
-    {
-        DBGPRINT("Cannot register window class. GetLastError=%d", ::GetLastError());
-        return;
-    }
+    CHECK(::SetWindowSubclass(hWnd, subClassProc, 0, reinterpret_cast<DWORD_PTR>(this)));
 
-    HWND hWnd = ::CreateWindowExW(0, reinterpret_cast<LPCWSTR>(classAtom), nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, 0);
-    if (!IsValidHandle(hWnd))
-    {
-        DBGPRINT("Cannot create hidden raw input window. GetLastError=%d", ::GetLastError());
-        return;
-    }
+    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
 
-    ::SetWindowLongPtrW(hWnd, 0, reinterpret_cast<LONG_PTR>(this));
-
-    //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true))
-    //    DBGPRINT("Cannot attach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
-
-    if (!Register(hWnd))
-    {
-        DBGPRINT("Cannot register raw input devices.");
-        return;
-    }
+    CHECK(Register(hWnd));
 
     // enumerate devices before start
-    OnInputDeviceChange();
+    EnumerateDevices();
 
     // main message loop
     while (m_Running)
     {
-        MSG msg;
-        while (::PeekMessageW(&msg, 0, 0, 0, PM_REMOVE))
-        {
-            ::DispatchMessageW(&msg);
-        }
-
         // wait for new messages
         ::MsgWaitForMultipleObjectsEx(1, &m_WakeUpEvent, INFINITE, QS_ALLEVENTS, MWMO_INPUTAVAILABLE);
+
+        MSG msg;
+        while (::PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+        {
+            if (msg.message == WM_QUIT)
+            {
+                m_Running = false;
+                break;
+            }
+
+            ::TranslateMessage(&msg);
+            ::DispatchMessageW(&msg);
+        }
     }
 
-    if (!Unregister())
-        DBGPRINT("Cannot unregister raw input devices.");
+    CHECK(Unregister());
 
-    //if (!::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false))
-    //    DBGPRINT("Cannot detach raw input thread input to parent thread's input. GetLastError=%d", ::GetLastError());
+    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false));
 
-    if (hWnd)
-        ::DestroyWindow(hWnd);
-
-    if (classAtom)
-        ::UnregisterClassW(reinterpret_cast<LPCWSTR>(classAtom), wc.hInstance);
+    CHECK(::RemoveWindowSubclass(hWnd, subClassProc, 0));
+    CHECK(::DestroyWindow(hWnd));
 }
 
 bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
@@ -208,7 +193,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
     UINT size = 0;
     UINT result = ::GetRawInputData(dataHandle, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
 
-    if (result == static_cast<UINT>(-1))
+    if (result == UINT_MAX)
     {
         DBGPRINT("GetRawInputData() failed. GetLastError=%d", ::GetLastError());
         return;
@@ -222,7 +207,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
 
     result = ::GetRawInputData(dataHandle, RID_INPUT, input, &size, sizeof(RAWINPUTHEADER));
 
-    if (result == static_cast<UINT>(-1))
+    if (result == UINT_MAX)
     {
         DBGPRINT("GetRawInputData() failed. GetLastError=%d", ::GetLastError());
         return;
@@ -232,11 +217,35 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
     OnInput(input);
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
+void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected)
+{
+    if (isConnected)
+    {
+        RID_DEVICE_INFO deviceInfo;
+        CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
+
+        auto new_device = CreateRawInputDevice(deviceInfo.dwType, deviceHandle);
+        CHECK(new_device && new_device->IsValid());
+
+        auto emplace_result = m_Devices.emplace(deviceHandle, std::move(new_device));
+        CHECK(emplace_result.second);
+
+        // TODO LOG
+        DBGPRINT("Connected raw input device. Handle=%x", deviceHandle);
+        DumpInfo(emplace_result.first->second.get());
+    }
+    else
+    {
+        DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
+        m_Devices.erase(deviceHandle);
+    }
+}
+
+void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
 {
     UINT count = 0;
     UINT result = ::GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST));
-    if (result == static_cast<UINT>(-1))
+    if (result == UINT_MAX)
     {
         DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
         return;
@@ -250,47 +259,32 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceChange()
     {
         device_list.resize(count);
         result = ::GetRawInputDeviceList(device_list.data(), &count, sizeof(RAWINPUTDEVICELIST));
-    } while (result == static_cast<UINT>(-1) && GetLastError() == ERROR_INSUFFICIENT_BUFFER);
+    } while (result == UINT_MAX && GetLastError() == ERROR_INSUFFICIENT_BUFFER);
 
-    std::unordered_set<HANDLE> enumerated_device_handles;
-    for (UINT i = 0; i < result; ++i)
+    device_list.resize(result);
+
+    for (auto& device : device_list)
     {
-        const HANDLE device_handle = device_list[i].hDevice;
+        if (m_Devices.find(device.hDevice) == m_Devices.end())
+            OnInputDeviceConnected(device.hDevice, true);
+    }
 
-        auto deviceIt = m_Devices.find(device_handle);
-        if (deviceIt == m_Devices.end())
-        {
-            const DWORD device_type = device_list[i].dwType;
-            auto new_device = CreateRawInputDevice(device_type, device_handle);
-            if (!new_device || !new_device->IsValid())
+    std::list<decltype(m_Devices)::iterator> removed_devices;
+    for (auto it = m_Devices.begin(); it != m_Devices.end(); ++it)
+    {
+        auto deviceListIt = std::find_if(device_list.begin(), device_list.end(),
+            [&it](const RAWINPUTDEVICELIST& device)
             {
-                DBGPRINT("Invalid device: '%d'", device_handle);
-                continue;
-            }
+                return it->first == device.hDevice;
+            });
 
-            auto emplace_result = m_Devices.emplace(device_handle, std::move(new_device));
-            CHECK(emplace_result.second);
-
-            // TODO LOG
-            DumpInfo(emplace_result.first->second.get());
-        }
-
-        enumerated_device_handles.insert(device_handle);
+        if (deviceListIt == device_list.end())
+            removed_devices.push_back(it);
     }
 
     // Clear out old devices that weren't part of this enumeration pass.
-    auto deviceIt = m_Devices.begin();
-    while (deviceIt != m_Devices.end())
-    {
-        if (enumerated_device_handles.find(deviceIt->first) == enumerated_device_handles.end())
-        {
-            deviceIt = m_Devices.erase(deviceIt);
-        }
-        else
-        {
-            ++deviceIt;
-        }
-    }
+    for(auto& device : removed_devices)
+        OnInputDeviceConnected(device->first, false);
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
@@ -300,18 +294,18 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
     if (!input)
         return;
 
-    HANDLE handle = input->header.hDevice;
+    HANDLE deviceHandle = input->header.hDevice;
     UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
     DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
 
-    auto it = m_Devices.find(handle);
+    auto it = m_Devices.find(deviceHandle);
     if (it == m_Devices.end())
     {
         // In some cases handle is not provided.
         // Try to interpret input by its type.
         // See https://stackoverflow.com/q/57552844
         it = std::find_if(m_Devices.begin(), m_Devices.end(),
-            [&input](const decltype(*m_Devices.begin())& device)
+            [&input](const std::pair<const HANDLE, std::unique_ptr<RawInputDevice>>& device)
             {
                 switch (input->header.dwType)
                 {
@@ -327,7 +321,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 
     if (it == m_Devices.end())
     {
-        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", handle, input->header.dwType);
+        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", deviceHandle, input->header.dwType);
         return;
     }
 
