@@ -105,7 +105,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;comctl32.lib;cfgmgr32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -134,7 +135,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;comctl32.lib;cfgmgr32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -159,7 +161,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;comctl32.lib;cfgmgr32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -188,7 +191,8 @@
     <ProjectReference />
     <Lib />
     <Lib>
-      <AdditionalDependencies>hid.lib;comctl32.lib;cfgmgr32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>
+      </AdditionalDependencies>
     </Lib>
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
