@@ -2,7 +2,7 @@
 
 #include "UsbDevice.h"
 
-#include "SetupApiWrapper.h"
+#include "CfgMgr32Wrapper.h"
 
 #pragma warning(push, 0)
 #include <initguid.h>

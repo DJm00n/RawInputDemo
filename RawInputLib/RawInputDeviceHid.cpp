@@ -2,7 +2,7 @@
 #include "framework.h"
 
 #include "RawInputDeviceHid.h"
-#include "SetupApiWrapper.h"
+#include "CfgMgr32Wrapper.h"
 
 #include <hidusage.h>
 

@@ -39,7 +39,7 @@
     <ClInclude Include="utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SetupApiWrapper.h">
+    <ClInclude Include="CfgMgr32Wrapper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="keycodeconverter.h">

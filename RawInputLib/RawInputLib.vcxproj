@@ -207,7 +207,7 @@
     <ClInclude Include="RawInputDeviceKeyboard.h" />
     <ClInclude Include="RawInputDeviceManager.h" />
     <ClInclude Include="RawInputDeviceMouse.h" />
-    <ClInclude Include="SetupApiWrapper.h" />
+    <ClInclude Include="CfgMgr32Wrapper.h" />
     <ClInclude Include="UsbDevice.h" />
     <ClInclude Include="utils.h" />
   </ItemGroup>
