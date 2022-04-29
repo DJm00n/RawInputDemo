@@ -30,9 +30,9 @@ public:
     uint16_t GetProductId() const { return m_ProductId; }
     uint16_t GetVersionNumber() const { return m_VersionNumber; }
 
-    bool IsUsbDevice() const { return m_UsbDevice && !m_UsbDevice->m_UsbDeviceInterfacePath.empty(); }
+    bool IsUsbDevice() const { return m_UsbDevice && !m_UsbDevice->m_DeviceInterfacePath.empty(); }
 
-    std::string GetUsbInterfacePath() const { return m_UsbDevice->m_UsbDeviceInterfacePath; }
+    std::string GetUsbInterfacePath() const { return m_UsbDevice->m_DeviceInterfacePath; }
 
     bool IsHidDevice() const { return !m_HidInterfacePath.empty(); }
     std::string GetHidInterfacePath() const { return m_HidInterfacePath; }

@@ -5,16 +5,14 @@
 class UsbDeviceInfo
 {
 public:
-    UsbDeviceInfo(const std::string& deviceInstanceId);
+    UsbDeviceInfo(const std::string& hidDeviceInstanceId);
 
     UsbDeviceInfo(UsbDeviceInfo&) = delete;
     void operator=(UsbDeviceInfo) = delete;
 
 public:
     std::string m_DeviceInstanceId;
-
-    std::string m_UsbDeviceInstanceId;
-    std::string m_UsbDeviceInterfacePath;
+    std::string m_DeviceInterfacePath;
 
     uint16_t m_VendorId = 0;
     uint16_t m_ProductId = 0;
@@ -33,6 +31,6 @@ public:
 
     std::string m_UsbHubInterfacePath;
     ScopedHandle m_UsbHubHandle;
-    ULONG m_ConnectionIndex;
+    ULONG m_UsbPortIndex;
 
 };

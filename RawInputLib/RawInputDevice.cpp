@@ -32,7 +32,7 @@ bool RawInputDevice::QueryDeviceInfo()
 
         if (QueryUsbDeviceInterface() && !QueryUsbDeviceInfo())
         {
-            DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDevice->m_UsbDeviceInterfacePath.c_str());
+            DBGPRINT("Cannot get USB device info from '%s' interface.", m_UsbDevice->m_DeviceInterfacePath.c_str());
             return false;
         }
 
