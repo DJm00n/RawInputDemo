@@ -31,7 +31,7 @@ RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
 // Get keyboard layout specific localized key name
 static std::string GetScanCodeName(uint16_t scanCode)
 {
-    const bool isExtendedKey = (scanCode >> 8) != 0;
+    const bool isExtendedKey = scanCode & 0xff00;
 
     // Some extended keys doesn't work properly with GetKeyNameTextW API
     if (isExtendedKey)
@@ -80,7 +80,7 @@ static std::string GetScanCodeName(uint16_t scanCode)
 
     const LONG lParam = MAKELONG(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
     wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(lParam, name, sizeof(name));
+    size_t nameSize = ::GetKeyNameTextW(lParam, name, std::size(name));
 
     return utf8::narrow(name, nameSize);
 }
@@ -113,7 +113,7 @@ static uint8_t ScanCodeToDIKCode(uint16_t scanCode)
         dikCode = DIK_PAUSE;
     else if (scanCode == numLockScanCode)
         dikCode = DIK_NUMLOCK;
-    else if (scanCode & 0xe000)
+    else if (scanCode & 0xff00)
         dikCode |= 0x80;
 
     return dikCode;
@@ -133,7 +133,7 @@ static uint16_t DIKCodeToScanCode(uint8_t dikCode)
     return scanCode;
 }
 
-// Get name of the DIK_* keycode
+// Get keyboard layout specific localized DIK_* key name
 static std::string DIKCodeToString(uint8_t dikKey)
 {
     static LPDIRECTINPUT8 directInput8 = nullptr;
@@ -141,7 +141,6 @@ static std::string DIKCodeToString(uint8_t dikKey)
 
     if (!directInputKeyboard)
     {
-
         ::DirectInput8Create(GetModuleHandle(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput8, NULL);
         CHECK(directInput8);
 

@@ -225,7 +225,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceConnected(HANDLE d
         CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
 
         auto new_device = CreateRawInputDevice(deviceInfo.dwType, deviceHandle);
-        CHECK(new_device && new_device->IsValid());
+        //CHECK(new_device && new_device->IsValid());
 
         auto emplace_result = m_Devices.emplace(deviceHandle, std::move(new_device));
         CHECK(emplace_result.second);
@@ -305,7 +305,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
         // Try to interpret input by its type.
         // See https://stackoverflow.com/q/57552844
         it = std::find_if(m_Devices.begin(), m_Devices.end(),
-            [&input](const std::pair<const HANDLE, std::unique_ptr<RawInputDevice>>& device)
+            [&input](const decltype(m_Devices)::const_reference& device)
             {
                 switch (input->header.dwType)
                 {
