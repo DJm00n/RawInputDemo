@@ -8,6 +8,9 @@
 #include <ntddkbd.h>
 #pragma warning(pop)
 
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+
 #include <string>
 
 #include "keycodeconverter.h"
@@ -82,6 +85,83 @@ static std::string GetScanCodeName(uint16_t scanCode)
     return utf8::narrow(name, nameSize);
 }
 
+constexpr uint16_t ctrlNumLockScanCode = 0xe11d;
+constexpr uint16_t numLockScanCode = 0xe045;
+constexpr uint16_t pauseScanCode = 0x0045;
+
+static uint16_t MakeScanCode(USHORT makeCode, USHORT flags)
+{
+    uint16_t scanCode = makeCode;
+
+    scanCode |= (flags & RI_KEY_E0) ? 0xe000 : 0;
+    scanCode |= (flags & RI_KEY_E1) ? 0xe100 : 0;
+
+    if (scanCode == ctrlNumLockScanCode)
+        scanCode = pauseScanCode;
+    else if (scanCode == pauseScanCode)
+        scanCode = numLockScanCode;
+
+    return scanCode;
+}
+
+// DIK_* codes are almost same thing as scancode
+static uint8_t ScanCodeToDIKCode(uint16_t scanCode)
+{
+    uint8_t dikCode = scanCode & 0x7f;
+
+    if (scanCode == pauseScanCode)
+        dikCode = DIK_PAUSE;
+    else if (scanCode == numLockScanCode)
+        dikCode = DIK_NUMLOCK;
+    else if (scanCode & 0xe000)
+        dikCode |= 0x80;
+
+    return dikCode;
+}
+
+static uint16_t DIKCodeToScanCode(uint8_t dikCode)
+{
+    uint16_t scanCode = dikCode & 0x7f;
+
+    if (dikCode == DIK_PAUSE)
+        scanCode = pauseScanCode;
+    else if (dikCode == DIK_NUMLOCK)
+        scanCode = numLockScanCode;
+    else if (dikCode & 0x80)
+        scanCode |= 0xe000;
+
+    return scanCode;
+}
+
+// Get name of the DIK_* keycode
+static std::string DIKCodeToString(uint8_t dikKey)
+{
+    static LPDIRECTINPUT8 directInput8 = nullptr;
+    static LPDIRECTINPUTDEVICE8 directInputKeyboard = nullptr;
+
+    if (!directInputKeyboard)
+    {
+
+        ::DirectInput8Create(GetModuleHandle(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput8, NULL);
+        CHECK(directInput8);
+
+        directInput8->CreateDevice(GUID_SysKeyboard, &directInputKeyboard, NULL);
+        CHECK(directInputKeyboard);
+
+        directInputKeyboard->SetDataFormat(&c_dfDIKeyboard);
+    }
+
+    DIPROPSTRING keyName;
+    keyName.diph.dwSize = sizeof(DIPROPSTRING);
+    keyName.diph.dwHeaderSize = sizeof(DIPROPHEADER);
+    keyName.diph.dwObj = dikKey;
+    keyName.diph.dwHow = DIPH_BYOFFSET;
+    HRESULT res = directInputKeyboard->GetProperty(DIPROP_KEYNAME, &keyName.diph);
+    CHECK(SUCCEEDED(res));
+
+    return utf8::narrow(keyName.wsz);
+}
+
 void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 {
     if (input == nullptr || input->header.dwType != RIM_TYPEKEYBOARD)
@@ -92,18 +172,13 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     const RAWKEYBOARD& keyboard = input->data.keyboard;
 
+    if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey == 0xff/*VK__none_*/)
+        return;
+
     const bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
-    const bool keyHasE0Prefix = (keyboard.Flags & RI_KEY_E0) == RI_KEY_E0;
-    const bool keyHasE1Prefix = (keyboard.Flags & RI_KEY_E1) == RI_KEY_E1;
 
     uint16_t vkCode = keyboard.VKey;
-    uint16_t scanCode = keyboard.MakeCode;
-
-    scanCode |= keyHasE0Prefix ? 0xe000 : 0;
-    scanCode |= keyHasE1Prefix ? 0xe100 : 0;
-
-    if (scanCode == KEYBOARD_OVERRUN_MAKE_CODE || vkCode == 0xff)
-        return;
+    uint16_t scanCode = MakeScanCode(keyboard.MakeCode, keyboard.Flags);
 
     switch (vkCode)
     {
@@ -114,26 +189,16 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         break;
     }
 
-    constexpr uint16_t ctrlNumLockScanCode = 0xe11d;
-    constexpr uint16_t numLockScanCode = 0xe045;
-    constexpr uint16_t pauseScanCode = 0x0045;
-
-    // Some scancodes are known to be wrong (obscure Windows bug?)
-    switch (scanCode)
-    {
-    case ctrlNumLockScanCode:
-        scanCode = pauseScanCode;
-        break;
-    case pauseScanCode:
-        scanCode = numLockScanCode;
-        break;
-    }
-
     uint32_t usbKeyCode = KeycodeConverter::NativeKeycodeToUsbKeycode(scanCode);
     const char* keyName = KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode);
     std::string scanCodeName = GetScanCodeName(scanCode);
 
-    DBGPRINT("Keyboard '%s': %s `%s` Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(0x%02x), ScanCodeName(`%s`)\n",
+    BYTE dikCode = ScanCodeToDIKCode(scanCode);
+    std::string dikCodeName = DIKCodeToString(dikCode);
+    uint16_t scanCode2 = DIKCodeToScanCode(dikCode);
+    CHECK_EQ(scanCode, scanCode2);
+
+    DBGPRINT("Keyboard '%s': %s `%s` Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(0x%02x), ScanCodeName(`%s`), DIKCode(0x%02x), DIKCodeName(`%s`)\n",
         GetInterfacePath().c_str(),
         keyUp ? "release" : "press",
         keyName,
@@ -141,7 +206,9 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         LOWORD(usbKeyCode),
         scanCode,
         vkCode,
-        scanCodeName.c_str());
+        scanCodeName.c_str(),
+        dikCode,
+        dikCodeName.c_str());
 }
 
 bool RawInputDeviceKeyboard::QueryDeviceInfo()
