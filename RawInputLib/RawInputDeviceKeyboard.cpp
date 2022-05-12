@@ -85,50 +85,36 @@ static std::string GetScanCodeName(uint16_t scanCode)
     return utf8::narrow(name, nameSize);
 }
 
-constexpr uint16_t ctrlNumLockScanCode = 0xe11d;
-constexpr uint16_t numLockScanCode = 0xe045;
-constexpr uint16_t pauseScanCode = 0x0045;
-
-static uint16_t MakeScanCode(USHORT makeCode, USHORT flags)
-{
-    uint16_t scanCode = makeCode;
-
-    scanCode |= (flags & RI_KEY_E0) ? 0xe000 : 0;
-    scanCode |= (flags & RI_KEY_E1) ? 0xe100 : 0;
-
-    if (scanCode == ctrlNumLockScanCode)
-        scanCode = pauseScanCode;
-    else if (scanCode == pauseScanCode)
-        scanCode = numLockScanCode;
-
-    return scanCode;
-}
-
 // DIK_* codes are almost same thing as scancode
+// but packed into one byte with high-order bit set for extended keys
 static uint8_t ScanCodeToDIKCode(uint16_t scanCode)
 {
-    uint8_t dikCode = scanCode & 0x7f;
+    // only key up (make) scan codes are supported
+    DCHECK_EQ(scanCode & 0x80, 0);
 
-    if (scanCode == pauseScanCode)
+    uint8_t dikCode = scanCode & 0x7f;
+    dikCode |= (scanCode & 0xff00) ? 0x80 : 0;
+
+    // Silly keyboard driver - as said in DirectInput source code :)
+    if (dikCode == DIK_NUMLOCK)
         dikCode = DIK_PAUSE;
-    else if (scanCode == numLockScanCode)
+    else if (dikCode == DIK_PAUSE)
         dikCode = DIK_NUMLOCK;
-    else if (scanCode & 0xff00)
-        dikCode |= 0x80;
 
     return dikCode;
 }
 
+// Unpack DIK_* code to two-byte scan code
 static uint16_t DIKCodeToScanCode(uint8_t dikCode)
 {
-    uint16_t scanCode = dikCode & 0x7f;
+    // Silly keyboard driver - as said in DirectInput source code :)
+    if (dikCode == DIK_NUMLOCK)
+        dikCode = DIK_PAUSE;
+    else if (dikCode == DIK_PAUSE)
+        dikCode = DIK_NUMLOCK;
 
-    if (dikCode == DIK_PAUSE)
-        scanCode = pauseScanCode;
-    else if (dikCode == DIK_NUMLOCK)
-        scanCode = numLockScanCode;
-    else if (dikCode & 0x80)
-        scanCode |= 0xe000;
+    uint16_t scanCode = dikCode & 0x7f;
+    scanCode |= (dikCode & 0x80) ? 0xe000 : 0;
 
     return scanCode;
 }
@@ -176,9 +162,23 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     const bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
 
-    uint16_t vkCode = keyboard.VKey;
-    uint16_t scanCode = MakeScanCode(keyboard.MakeCode, keyboard.Flags);
+    uint16_t scanCode = keyboard.MakeCode;
+    scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
+    scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
 
+    constexpr uint16_t c_BreakScanCode = 0xe11d; // emitted on Ctrl+NumLock
+    constexpr uint16_t c_NumLockScanCode = 0xe045;
+    constexpr uint16_t c_PauseScanCode = 0x0045;
+
+    // These are special for historical reasons
+    // https://en.wikipedia.org/wiki/Break_key#Modern_keyboards
+    // Without it GetKeyNameTextW API will fail for these keys
+    if (scanCode == c_BreakScanCode)
+        scanCode = c_PauseScanCode;
+    else if (scanCode == c_PauseScanCode)
+        scanCode = c_NumLockScanCode;
+
+    uint16_t vkCode = keyboard.VKey;
     switch (vkCode)
     {
     case VK_SHIFT:   // -> VK_LSHIFT or VK_RSHIFT
