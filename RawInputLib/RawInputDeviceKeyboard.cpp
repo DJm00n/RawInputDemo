@@ -80,7 +80,7 @@ static std::string GetScanCodeName(uint16_t scanCode)
 
     const LONG lParam = MAKELONG(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
     wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(lParam, name, std::size(name));
+    size_t nameSize = ::GetKeyNameTextW(lParam, name, static_cast<int>(std::size(name)));
 
     return utf8::narrow(name, nameSize);
 }
@@ -89,11 +89,11 @@ static std::string GetScanCodeName(uint16_t scanCode)
 // but packed into one byte with high-order bit set for extended keys
 static uint8_t ScanCodeToDIKCode(uint16_t scanCode)
 {
-    // only key up (make) scan codes are supported
+    // Only key down (make) scan codes are supported
     DCHECK_EQ(scanCode & 0x80, 0);
 
     uint8_t dikCode = scanCode & 0x7f;
-    dikCode |= (scanCode & 0xff00) ? 0x80 : 0;
+    dikCode |= (scanCode & 0xe000) ? 0x80 : 0;
 
     // Silly keyboard driver - as said in DirectInput source code :)
     if (dikCode == DIK_NUMLOCK)
@@ -157,26 +157,32 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     const RAWKEYBOARD& keyboard = input->data.keyboard;
 
+    // Ignore key overrun state and keys that are not mapped to any VK code
+    // This effectively filters out scan code pre/postfix for some keys like PrintScreen.
     if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey == 0xff/*VK__none_*/)
         return;
 
     const bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
 
+    // Scan codes are produced by Windows Keyboard HID client driver from USB HID keyboard key usages via HidP_TranslateUsagesToI8042ScanCodes call
+    // They could contain 0xe0 or 0xe1 one-byte prefix
+    // See drivers/wdm/input/hidparse/trnslate.c
     uint16_t scanCode = keyboard.MakeCode;
     scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
     scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
 
-    constexpr uint16_t c_BreakScanCode = 0xe11d; // emitted on Ctrl+NumLock
-    constexpr uint16_t c_NumLockScanCode = 0xe045;
-    constexpr uint16_t c_PauseScanCode = 0x0045;
-
     // These are special for historical reasons
     // https://en.wikipedia.org/wiki/Break_key#Modern_keyboards
-    // Without it GetKeyNameTextW API will fail for these keys
-    if (scanCode == c_BreakScanCode)
-        scanCode = c_PauseScanCode;
-    else if (scanCode == c_PauseScanCode)
-        scanCode = c_NumLockScanCode;
+    switch (scanCode)
+    {
+    case 0xe046:            // Break (Ctrl + Pause)
+    case 0xe11d:            // Pause (Ctrl + NumLock)
+        scanCode = 0x0045;  // -> Pause
+        break;
+    case 0x0045:            // Pause
+        scanCode = 0xe045;  // -> NumLock
+        break;
+    }
 
     uint16_t vkCode = keyboard.VKey;
     switch (vkCode)
