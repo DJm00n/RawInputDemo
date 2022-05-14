@@ -127,7 +127,7 @@ VOID DebugPrint(const char* /*function_name*/, unsigned int /*line_number*/, con
     va_end(args);
 
     ::OutputDebugStringA(formatted.data());
-    std::printf("%s", formatted.data());
+    std::printf("%s\n", formatted.data());
 }
 //#endif
 

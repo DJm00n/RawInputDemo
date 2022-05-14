@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "framework.h"
 
 #include "RawInputDeviceManager.h"
@@ -33,7 +33,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     void ThreadRun();
 
-    bool Register(HWND hWnd);
+    bool Register();
     bool Unregister();
 
     void OnInputMessage(HRAWINPUT dataHandle);
@@ -41,13 +41,17 @@ struct RawInputDeviceManager::RawInputManagerImpl
     void OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected);
 
     void EnumerateDevices();
+    
 
-    void OnInput(const RAWINPUT* input);
+    void OnInput(const RAWINPUT* input) const;
+    void OnKeyboardEvent(const RAWKEYBOARD& keyboard) const;
 
-    std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE handle) const;
+    std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE deviceHandle) const;
+    RawInputDevice* FindDevice(DWORD deviceType, HANDLE deviceHandle) const;
 
     std::thread m_Thread;
     std::atomic<bool> m_Running = true;
+    HWND m_hWnd = nullptr;
     HANDLE m_WakeUpEvent = INVALID_HANDLE_VALUE;
     DWORD m_ParentThreadId = 0;
     std::vector<uint8_t> m_InputBuffer;
@@ -74,8 +78,8 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     CHECK(IsValidHandle(m_WakeUpEvent));
 
     HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
-    HWND hWnd = ::CreateWindowExW(0, L"Static", nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, 0);
-    CHECK(IsValidHandle(hWnd));
+    m_hWnd = ::CreateWindowExW(0, L"Static", nullptr, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, 0);
+    CHECK(IsValidHandle(m_hWnd));
 
     SUBCLASSPROC subClassProc = [](HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData) -> LRESULT
     {
@@ -84,6 +88,14 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 
         switch (uMsg)
         {
+        case WM_CHAR:
+        {
+            // TODO Implement ITfLanguageProfileNotifySink and ITfActiveLanguageProfileNotifySink to detect language change
+            // and call ActivateKeyboardLayout() when needed.
+            DBGPRINT("Have WM_CHAR. wParam=%llx (`%c`)\n", wParam, wParam);
+
+            return 0;
+        }
         case WM_INPUT_DEVICE_CHANGE:
         {
             CHECK(wParam == GIDC_ARRIVAL || wParam == GIDC_REMOVAL);
@@ -100,16 +112,18 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 
             return 0;
         }
+
         }
 
         return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
     };
 
-    CHECK(::SetWindowSubclass(hWnd, subClassProc, 0, reinterpret_cast<DWORD_PTR>(this)));
+    CHECK(::SetWindowSubclass(m_hWnd, subClassProc, 0, reinterpret_cast<DWORD_PTR>(this)));
 
-    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
+    // use keyboard state of the parent thread
+    CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
 
-    CHECK(Register(hWnd));
+    CHECK(Register());
 
     // enumerate devices before start
     EnumerateDevices();
@@ -136,13 +150,14 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 
     CHECK(Unregister());
 
-    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false));
+    CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false));
 
-    CHECK(::RemoveWindowSubclass(hWnd, subClassProc, 0));
-    CHECK(::DestroyWindow(hWnd));
+    CHECK(::RemoveWindowSubclass(m_hWnd, subClassProc, 0));
+    CHECK(::DestroyWindow(m_hWnd));
+    m_hWnd = nullptr;
 }
 
-bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
+bool RawInputDeviceManager::RawInputManagerImpl::Register()
 {
     RAWINPUTDEVICE rid[] =
     {
@@ -152,19 +167,19 @@ bool RawInputDeviceManager::RawInputManagerImpl::Register(HWND hWnd)
             HID_USAGE_PAGE_GENERIC,
             HID_USAGE_GENERIC_MOUSE,
             RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_NOLEGACY,
-            hWnd
+            m_hWnd
         },
         {
             HID_USAGE_PAGE_GENERIC,
             HID_USAGE_GENERIC_KEYBOARD,
             RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_NOLEGACY,
-            hWnd
+            m_hWnd
         },*/
         {
             HID_USAGE_PAGE_GENERIC,
             0,
             RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_PAGEONLY,
-            hWnd
+            m_hWnd
         }
     };
 
@@ -287,45 +302,89 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
         OnInputDeviceConnected(device->first, false);
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
+void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input) const
 {
     CHECK(input);
 
     if (!input)
         return;
 
-    HANDLE deviceHandle = input->header.hDevice;
     UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
     DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
 
-    auto it = m_Devices.find(deviceHandle);
-    if (it == m_Devices.end())
+    if (RawInputDevice* device = FindDevice(input->header.dwType, input->header.hDevice))
     {
-        // In some cases handle is not provided.
-        // Try to interpret input by its type.
-        // See https://stackoverflow.com/q/57552844
-        it = std::find_if(m_Devices.begin(), m_Devices.end(),
-            [&input](const decltype(m_Devices)::const_reference& device)
-            {
-                switch (input->header.dwType)
-                {
-                case RIM_TYPEKEYBOARD:
-                    return dynamic_cast<RawInputDeviceKeyboard*>(device.second.get()) != nullptr;
-                case RIM_TYPEMOUSE:
-                    return dynamic_cast<RawInputDeviceMouse*>(device.second.get()) != nullptr;
-                default:
-                    return false;
-                }
-            });
+        device->OnInput(input);
+    }
+    else
+    {
+        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", input->header.hDevice, input->header.dwType);
     }
 
-    if (it == m_Devices.end())
+    if (input->header.dwType == RIM_TYPEKEYBOARD)
     {
-        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", deviceHandle, input->header.dwType);
+        OnKeyboardEvent(input->data.keyboard);
+    }
+}
+
+void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard) const
+{
+    if (keyboard.VKey >= 0xff/*VK__none_*/)
         return;
+
+    // To be able to receive WM_CHAR in our thread we need WM_KEYDOWN/WM_KEYUP messages.
+    // But we wouldn't have them in invisible unfocused window that we have there.
+    // Just emulate them from RawInput message manually.
+    const uint16_t scanCode = MAKEWORD(keyboard.MakeCode, (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0);
+
+    /*
+    // Posted keyboard messages don't change the thread keyboard state so we must update it manually
+    // for accelerators and some other windows internals (like Alt + Numpad NNN codes) to work.
+    uint8_t keys[256];
+    ::GetKeyboardState(keys);
+
+    auto SetKeyState = [](uint8_t& state, bool keyDown)
+    {
+        if (keyDown)
+        {
+            // Set 'down' bit 0x80, toggle 'toggle' bit 0x01
+            state = 0x80 | (0x01 ^ (state & 0x01));
+        }
+        else
+        {
+            // Clear 'down' bit 0x80
+            state &= ~0x80;
+        }
+    };
+
+    SetKeyState(keys[keyboard.VKey], !(keyboard.Flags & RI_KEY_BREAK));
+
+    switch (keyboard.VKey)
+    {
+    case VK_SHIFT:   // -> VK_LSHIFT or VK_RSHIFT
+    case VK_CONTROL: // -> VK_LCONTROL or VK_RCONTROL
+    case VK_MENU:    // -> VK_LMENU or VK_RMENU
+        SetKeyState(keys[LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX))], !(keyboard.Flags & RI_KEY_BREAK));
+        break;
     }
 
-    it->second->OnInput(input);
+    ::SetKeyboardState(keys);*/
+
+    uint16_t keyFlags = LOBYTE(scanCode);
+
+    if (scanCode & 0xff)
+        keyFlags |= KF_EXTENDED;
+
+    if (keyboard.Message == WM_SYSKEYDOWN || keyboard.Message == WM_SYSKEYUP)
+        keyFlags |= KF_ALTDOWN;
+
+    if (keyboard.Message == WM_KEYUP || keyboard.Message == WM_SYSKEYUP)
+        keyFlags |= KF_REPEAT;
+
+    if (keyboard.Flags & RI_KEY_BREAK)
+        keyFlags |= KF_UP;
+
+    ::PostMessageW(m_hWnd, keyboard.Message, keyboard.VKey, MAKELONG(1/*repeatCount*/, keyFlags));
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
@@ -343,6 +402,43 @@ std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::Crea
     DBGPRINT("Unknown device type %d.", deviceType);
 
     return nullptr;
+}
+
+RawInputDevice* RawInputDeviceManager::RawInputManagerImpl::FindDevice(DWORD deviceType, HANDLE deviceHandle) const
+{
+    if (deviceHandle)
+    {
+        auto it = m_Devices.find(deviceHandle);
+
+        if (it == m_Devices.end())
+            return nullptr;
+
+        return it->second.get();
+    }
+
+    // In some cases handle is not provided.
+    // Try to find first device of this type.
+    // See https://stackoverflow.com/q/57552844
+    auto it = std::find_if(m_Devices.begin(), m_Devices.end(),
+        [deviceType](const decltype(m_Devices)::const_reference& device)
+        {
+            switch (deviceType)
+            {
+            case RIM_TYPEKEYBOARD:
+                return dynamic_cast<RawInputDeviceKeyboard*>(device.second.get()) != nullptr;
+            case RIM_TYPEMOUSE:
+                return dynamic_cast<RawInputDeviceMouse*>(device.second.get()) != nullptr;
+            case RIM_TYPEHID:
+                return dynamic_cast<RawInputDeviceHid*>(device.second.get()) != nullptr;
+            default:
+                return false;
+            }
+        });
+
+    if (it == m_Devices.end())
+        return nullptr;
+
+    return it->second.get();
 }
 
 RawInputDeviceManager::RawInputDeviceManager()
