@@ -41,7 +41,6 @@ struct RawInputDeviceManager::RawInputManagerImpl
     void OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected);
 
     void EnumerateDevices();
-    
 
     void OnInput(const RAWINPUT* input) const;
     void OnKeyboardEvent(const RAWKEYBOARD& keyboard) const;
@@ -54,6 +53,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
     HWND m_hWnd = nullptr;
     HANDLE m_WakeUpEvent = INVALID_HANDLE_VALUE;
     DWORD m_ParentThreadId = 0;
+    mutable HKL m_KeyboardLayout = nullptr;
     std::vector<uint8_t> m_InputBuffer;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
@@ -90,9 +90,13 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
         {
         case WM_CHAR:
         {
-            // TODO Implement ITfLanguageProfileNotifySink and ITfActiveLanguageProfileNotifySink to detect language change
-            // and call ActivateKeyboardLayout() when needed.
-            DBGPRINT("Have WM_CHAR. wParam=%llx (`%c`)\n", wParam, wParam);
+            wchar_t ch = LOWORD(wParam);
+
+            // we don't support non-BMP chars
+            //if (IS_LOW_SURROGATE(ch) || IS_HIGH_SURROGATE(ch))
+            //    return 0;
+
+            DBGPRINT("WM_CHAR: `%s` (U+%04X %s)\n", GetUnicodeCharacterForPrint(ch).c_str(), ch, GetUnicodeCharacterName(ch).c_str());
 
             return 0;
         }
@@ -121,7 +125,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     CHECK(::SetWindowSubclass(m_hWnd, subClassProc, 0, reinterpret_cast<DWORD_PTR>(this)));
 
     // use keyboard state of the parent thread
-    CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
+    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
 
     CHECK(Register());
 
@@ -150,7 +154,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
 
     CHECK(Unregister());
 
-    CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false));
+    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, false));
 
     CHECK(::RemoveWindowSubclass(m_hWnd, subClassProc, 0));
     CHECK(::DestroyWindow(m_hWnd));
@@ -239,6 +243,12 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceConnected(HANDLE d
         RID_DEVICE_INFO deviceInfo;
         CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
 
+        if (FindDevice(deviceInfo.dwType, deviceHandle) != nullptr)
+        {
+            DBGPRINT("Skipping already detected device 0x%x of type %d", deviceHandle, deviceInfo.dwType);
+            return;
+        }
+
         auto new_device = CreateRawInputDevice(deviceInfo.dwType, deviceHandle);
         //CHECK(new_device && new_device->IsValid());
 
@@ -252,7 +262,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceConnected(HANDLE d
     else
     {
         DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
-        m_Devices.erase(deviceHandle);
+        CHECK(m_Devices.erase(deviceHandle));
     }
 }
 
@@ -332,14 +342,20 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
     if (keyboard.VKey >= 0xff/*VK__none_*/)
         return;
 
-    // To be able to receive WM_CHAR in our thread we need WM_KEYDOWN/WM_KEYUP messages.
-    // But we wouldn't have them in invisible unfocused window that we have there.
-    // Just emulate them from RawInput message manually.
-    const uint16_t scanCode = MAKEWORD(keyboard.MakeCode, (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0);
+    // Sync keyboard layout with parent thread
+    HKL keyboardLayout = ::GetKeyboardLayout(m_ParentThreadId);
+    if (keyboardLayout != m_KeyboardLayout)
+    {
+        m_KeyboardLayout = keyboardLayout;
+
+        // This will post WM_INPUTLANGCHANGE
+        ::ActivateKeyboardLayout(m_KeyboardLayout, 0);
+    }
 
     /*
     // Posted keyboard messages don't change the thread keyboard state so we must update it manually
     // for accelerators and some other windows internals (like Alt + Numpad NNN codes) to work.
+    // This is needed for RIDEV_NOLEGACY case.
     uint8_t keys[256];
     ::GetKeyboardState(keys);
 
@@ -364,15 +380,21 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
     case VK_SHIFT:   // -> VK_LSHIFT or VK_RSHIFT
     case VK_CONTROL: // -> VK_LCONTROL or VK_RCONTROL
     case VK_MENU:    // -> VK_LMENU or VK_RMENU
+    {
+        const uint16_t scanCode = MAKEWORD(keyboard.MakeCode, (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0);
         SetKeyState(keys[LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX))], !(keyboard.Flags & RI_KEY_BREAK));
         break;
     }
 
     ::SetKeyboardState(keys);*/
 
-    uint16_t keyFlags = LOBYTE(scanCode);
+    // To be able to receive WM_CHAR in our thread we need WM_KEYDOWN/WM_KEYUP messages.
+    // But we wouldn't have them in invisible unfocused window that we have there.
+    // Just emulate them from RawInput message manually.
 
-    if (scanCode & 0xff)
+    uint16_t keyFlags = LOBYTE(keyboard.MakeCode);
+
+    if (keyboard.Flags & RI_KEY_E0)
         keyFlags |= KF_EXTENDED;
 
     if (keyboard.Message == WM_SYSKEYDOWN || keyboard.Message == WM_SYSKEYUP)

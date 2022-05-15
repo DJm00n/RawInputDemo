@@ -83,6 +83,9 @@ inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool
     return ScopedHandle(handle);
 }
 
+std::string GetUnicodeCharacterForPrint(wchar_t character);
+std::string GetUnicodeCharacterName(wchar_t character);
+
 //#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);

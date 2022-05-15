@@ -5,6 +5,7 @@
 #include "utils.h"
 
 #include <array>
+#include <cwctype>
 
 using namespace std;
 
@@ -114,6 +115,29 @@ namespace stringutils
     }
 }
 
+std::string GetUnicodeCharacterForPrint(wchar_t character)
+{
+    if (!std::iswgraph(character))
+        character += 0x2400; // U+2400 Control Pictures https://www.unicode.org/charts/PDF/U2400.pdf
+
+    return utf8::narrow(&character, 1);
+}
+
+std::string GetUnicodeCharacterName(wchar_t character)
+{
+    // https://github.com/reactos/reactos/tree/master/dll/win32/getuname
+    typedef int(WINAPI* GetUNameFunc)(WORD wCharCode, LPWSTR lpBuf);
+    static GetUNameFunc pfnGetUName = reinterpret_cast<GetUNameFunc>(::GetProcAddress(::LoadLibraryA("getuname.dll"), "GetUName"));
+
+    if (!pfnGetUName)
+        return {};
+
+    std::array<WCHAR, 256> buffer;
+    int length = pfnGetUName(character, buffer.data());
+
+    return utf8::narrow(buffer.data(), length);
+}
+
 //#ifdef _DEBUG
 VOID DebugPrint(const char* /*function_name*/, unsigned int /*line_number*/, const char* format, ...)
 {
@@ -126,7 +150,7 @@ VOID DebugPrint(const char* /*function_name*/, unsigned int /*line_number*/, con
 
     va_end(args);
 
-    ::OutputDebugStringA(formatted.data());
+    ::OutputDebugStringW(utf8::widen(fmt::format("{}\n", formatted.data())).c_str());
     std::printf("%s\n", formatted.data());
 }
 //#endif
