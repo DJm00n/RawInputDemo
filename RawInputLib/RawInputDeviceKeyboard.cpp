@@ -78,9 +78,9 @@ static std::string GetScanCodeName(uint16_t scanCode)
         }
     }
 
-    const LONG lParam = MAKELONG(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
+    const LPARAM lParam = MAKELPARAM(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
     wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(lParam, name, static_cast<int>(std::size(name)));
+    size_t nameSize = ::GetKeyNameTextW(static_cast<LONG>(lParam), name, static_cast<int>(std::size(name)));
 
     return utf8::narrow(name, nameSize);
 }
@@ -164,15 +164,28 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     const bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
 
-    // Scan codes are produced by Windows Keyboard HID client driver from USB HID keyboard key usages via HidP_TranslateUsagesToI8042ScanCodes call
-    // They could contain 0xe0 or 0xe1 one-byte prefix
-    // See drivers/wdm/input/hidparse/trnslate.c
-    uint16_t scanCode = keyboard.MakeCode;
-    scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
-    scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
+    // Scan codes are produced by Windows Keyboard HID client driver from
+    // USB HID keyboard key usages via HidP_TranslateUsagesToI8042ScanCodes call.
+    // See `drivers/wdm/input/hidparse/trnslate.c` in leaked Windows XP source code.
+    //
+    // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
+    uint16_t scanCode = 0;
+    if (keyboard.MakeCode != 0)
+    {
+        scanCode = keyboard.MakeCode;
+        scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
+        scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
+    }
+    else
+    {
+        // Windows do not report scan codes for multimedia buttons (Next Track, Volume etc).
+        // Get scan code from VK code.
+        scanCode = LOWORD(MapVirtualKeyW(keyboard.VKey, MAPVK_VK_TO_VSC_EX));
+    }
 
-    // These are special for historical reasons
-    // https://en.wikipedia.org/wiki/Break_key#Modern_keyboards
+    CHECK_NE(scanCode, 0);
+
+    // These keys are special for historical reasons
     switch (scanCode)
     {
     case 0xe046:            // Break (Ctrl + Pause)
@@ -182,6 +195,8 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     case 0x0045:            // Pause
         scanCode = 0xe045;  // -> NumLock
         break;
+    case 0x0054:            // Sys Req (Alt + Prnt Scrn)
+        scanCode = 0xe037;  // -> Prnt Scrn
     }
 
     uint16_t vkCode = keyboard.VKey;
