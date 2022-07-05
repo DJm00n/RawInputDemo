@@ -166,11 +166,14 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey == 0xff/*VK__none_*/)
         return;
 
-    // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
     uint16_t scanCode = 0;
     if (keyboard.MakeCode != 0)
     {
-        scanCode = keyboard.MakeCode;
+        // Windows `On-Screen Keyboard` can send wrong scan codes with high-order bit set
+        // So we're strip it here.
+        scanCode = keyboard.MakeCode & 7f;
+
+        // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
         scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
         scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
     }
@@ -180,9 +183,6 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         // Get scan code from VK code in this case.
         scanCode = LOWORD(MapVirtualKeyW(keyboard.VKey, MAPVK_VK_TO_VSC_EX));
     }
-
-    // Windows `On-Screen Keyboard` can send wrong scan codes with high-order bit set
-    scanCode &= ~0x80;
 
     CHECK_NE(scanCode, 0);
 
