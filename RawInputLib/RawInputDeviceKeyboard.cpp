@@ -157,17 +157,15 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
 
     const RAWKEYBOARD& keyboard = input->data.keyboard;
 
+    // I8042 Scan codes are produced by Windows Keyboard HID client driver from
+    // USB HID keyboard key usages via HidP_TranslateUsagesToI8042ScanCodes call.
+    // See `drivers/wdm/input/hidparse/trnslate.c` in leaked Windows XP source code.
+
     // Ignore key overrun state and keys that are not mapped to any VK code
     // This effectively filters out scan code pre/postfix for some keys like PrintScreen.
     if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey == 0xff/*VK__none_*/)
         return;
 
-    const bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
-
-    // Scan codes are produced by Windows Keyboard HID client driver from
-    // USB HID keyboard key usages via HidP_TranslateUsagesToI8042ScanCodes call.
-    // See `drivers/wdm/input/hidparse/trnslate.c` in leaked Windows XP source code.
-    //
     // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
     uint16_t scanCode = 0;
     if (keyboard.MakeCode != 0)
@@ -178,10 +176,13 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     }
     else
     {
-        // Windows do not report scan codes for multimedia buttons (Next Track, Volume etc).
-        // Get scan code from VK code.
+        // Windows may not report scan codes for some buttons (like multimedia buttons).
+        // Get scan code from VK code in this case.
         scanCode = LOWORD(MapVirtualKeyW(keyboard.VKey, MAPVK_VK_TO_VSC_EX));
     }
+
+    // Windows `On-Screen Keyboard` can send wrong scan codes with high-order bit set
+    scanCode &= ~0x80;
 
     CHECK_NE(scanCode, 0);
 
@@ -209,8 +210,9 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         break;
     }
 
+    bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
     uint32_t usbKeyCode = KeycodeConverter::NativeKeycodeToUsbKeycode(scanCode);
-    const char* keyName = KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode);
+    std::string keyName = KeycodeConverter::UsbKeycodeToCodeString(usbKeyCode);
     std::string scanCodeName = GetScanCodeName(scanCode);
 
     BYTE dikCode = ScanCodeToDIKCode(scanCode);
@@ -221,7 +223,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     DBGPRINT("Keyboard '%s': %s `%s` Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(0x%02x), ScanCodeName(`%s`), DIKCode(0x%02x), DIKCodeName(`%s`)\n",
         GetInterfacePath().c_str(),
         keyUp ? "release" : "press",
-        keyName,
+        keyName.c_str(),
         HIWORD(usbKeyCode),
         LOWORD(usbKeyCode),
         scanCode,
