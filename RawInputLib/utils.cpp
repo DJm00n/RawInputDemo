@@ -116,8 +116,13 @@ namespace stringutils
 }
 
 // Undocumented API that is used in Windows "Character Map" tool
-std::string GetUNameWrapper(wchar_t character)
+std::string GetUNameWrapper(char32_t codePoint)
 {
+    if (codePoint > 0xFFFF)
+    {
+        return "Supplementary Multilingual Plane";
+    }
+
     // https://github.com/reactos/reactos/tree/master/dll/win32/getuname
     typedef int(WINAPI* GetUNameFunc)(WORD wCharCode, LPWSTR lpBuf);
     static GetUNameFunc pfnGetUName = reinterpret_cast<GetUNameFunc>(::GetProcAddress(::LoadLibraryA("getuname.dll"), "GetUName"));
@@ -125,20 +130,32 @@ std::string GetUNameWrapper(wchar_t character)
     if (!pfnGetUName)
         return {};
 
+    const WORD character = static_cast<WORD>(codePoint);
     std::array<WCHAR, 256> buffer;
     int length = pfnGetUName(character, buffer.data());
 
     return utf8::narrow(buffer.data(), length);
 }
 
-std::string GetUnicodeCharacterName(char32_t codePoint)
+// u_charName() ICU API that comes with Windows since Fall Creators Update (Version 1709 Build 16299)
+// https://docs.microsoft.com/windows/win32/intl/international-components-for-unicode--icu-
+std::string GetUCharNameWrapper(char32_t codePoint)
 {
-    if (codePoint < 0xFFFF)
-    {
-        return GetUNameWrapper(static_cast<wchar_t>(codePoint));
-    }
+    // https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uchar_8h.html#a2d90141097af5ad4b6c37189e7984932
+    typedef int32_t(*u_charNameFunc)(char32_t code, int nameChoice, char* buffer, int32_t bufferLength, int* pErrorCode);
+    static u_charNameFunc pfnU_charName = reinterpret_cast<u_charNameFunc>(::GetProcAddress(::LoadLibraryA("icuuc.dll"), "u_charName"));
 
-    return "Supplementary Multilingual Plane";
+    if (!pfnU_charName)
+        return {};
+
+    int errorCode = 0;
+    std::array<char, 512> buffer;
+    int32_t length = pfnU_charName(codePoint, 2/*U_UNICODE_CHAR_NAME*/ , buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
+
+    if (errorCode != 0)
+        return {};
+
+    return std::string(buffer.data(), length);
 }
 
 // Replace invisible code point with code point that is visible
@@ -160,7 +177,7 @@ std::string GetUnicodeCharacterNames(std::string string)
     // UTF-8 <=> UTF-32 converter
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf32conv;
 
-    // UTF-8 to UTF-32
+    // UTF-8 => UTF-32
     std::u32string utf32string = utf32conv.from_bytes(string);
 
     std::string characterNames;
@@ -172,9 +189,9 @@ std::string GetUnicodeCharacterNames(std::string string)
             characterNames.append(", ");
 
         char32_t visibleCodePoint = ReplaceInvisible(codePoint);
-        std::string charName = GetUnicodeCharacterName(codePoint);
+        std::string charName = GetUCharNameWrapper(codePoint);
 
-        // UTF-32 to UTF-8
+        // UTF-32 => UTF-8
         std::string utf8codePoint = utf32conv.to_bytes(&visibleCodePoint, &visibleCodePoint + 1);
         characterNames.append(fmt::format("{} <U+{:X} {}>", utf8codePoint, static_cast<uint32_t>(codePoint), charName));
     }

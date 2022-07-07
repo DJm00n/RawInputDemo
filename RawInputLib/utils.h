@@ -83,10 +83,6 @@ inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool
     return ScopedHandle(handle);
 }
 
-// Returns name of this Unicode character in UTF-8 string
-// For example: `a` 0x0061 -> `Latin Small Letter A`
-std::string GetUnicodeCharacterName(char32_t codePoint);
-
 std::string GetUnicodeCharacterNames(std::string string);
 
 typedef struct tagLAYOUTORTIPPROFILE {

@@ -142,7 +142,7 @@ static std::string DIKCodeToString(uint8_t dikKey)
     keyName.diph.dwObj = dikKey;
     keyName.diph.dwHow = DIPH_BYOFFSET;
     HRESULT res = directInputKeyboard->GetProperty(DIPROP_KEYNAME, &keyName.diph);
-    CHECK(SUCCEEDED(res));
+    //CHECK(SUCCEEDED(res));
 
     return utf8::narrow(keyName.wsz);
 }
@@ -203,6 +203,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         break;
     case 0x0054:            // Sys Req (Alt + Prnt Scrn)
         scanCode = 0xe037;  // -> Prnt Scrn
+        break;
     }
 
     uint16_t vkCode = keyboard.VKey;
