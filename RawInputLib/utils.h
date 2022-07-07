@@ -83,8 +83,56 @@ inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool
     return ScopedHandle(handle);
 }
 
-std::string GetUnicodeCharacterForPrint(wchar_t character);
-std::string GetUnicodeCharacterName(wchar_t character);
+// Returns name of this Unicode character in UTF-8 string
+// For example: `a` 0x0061 -> `Latin Small Letter A`
+std::string GetUnicodeCharacterName(char32_t codePoint);
+
+std::string GetUnicodeCharacterNames(std::string string);
+
+typedef struct tagLAYOUTORTIPPROFILE {
+    DWORD dwProfileType;
+    LANGID langid;
+    CLSID clsid;
+    GUID guidProfile;
+    GUID catid;
+    DWORD dwSubstituteLayout;
+    DWORD dwFlags;
+    WCHAR szId[MAX_PATH];
+} LAYOUTORTIPPROFILE;
+
+// Flags used in LAYOUTORTIPPROFILE::dwProfileType
+#define LOTP_INPUTPROCESSOR 1
+#define LOTP_KEYBOARDLAYOUT 2
+
+// Flags used in LAYOUTORTIPPROFILE::dwFlags.
+#define LOT_DEFAULT 0x0001
+#define LOT_DISABLED 0x0002
+
+std::wstring GetLayoutProfileId(HKL hkl);
+
+// Enumerates all enabled keyboard layouts or text services of the specified user setting
+std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles();
+
+// Returns default layout profile set in user settings
+std::wstring GetDefaultLayoutProfileId();
+
+bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* outProfile);
+std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId);
+
+std::string GetLocaleInformation(const std::wstring locale, LCTYPE LCType);
+
+// Returns KLID string of size KL_NAMELENGTH
+// Same as GetKeyboardLayoutName but for any HKL
+// https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
+// https://github.com/dotnet/winforms/issues/4345#issuecomment-759161693
+// 
+BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID);
+
+// Attempts to extract the localized keyboard layout name
+// as it appears in the Windows Regional Settings on the computer.
+// https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
+// It mimics GetLayoutDescription() from input.dll but lacks IME layout support
+std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID);
 
 //#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)

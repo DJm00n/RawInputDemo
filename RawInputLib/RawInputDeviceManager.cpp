@@ -96,7 +96,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
             //if (IS_LOW_SURROGATE(ch) || IS_HIGH_SURROGATE(ch))
             //    return 0;
 
-            DBGPRINT("WM_CHAR: `%s` (U+%04X %s)\n", GetUnicodeCharacterForPrint(ch).c_str(), ch, GetUnicodeCharacterName(ch).c_str());
+            //DBGPRINT("WM_CHAR: `%s` (U+%04X %s)\n", GetUnicodeCharacterSymbol(ch).c_str(), ch, GetUnicodeCharacterName(ch).c_str());
 
             return 0;
         }
