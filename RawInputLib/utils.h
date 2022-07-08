@@ -131,7 +131,7 @@ BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID);
 std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID);
 
 // Returns UTF-8 string that will be printed on key press
-std::string ToUnicodeWrapper(uint16_t scanCode, bool isShift = false);
+std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift = false);
 
 // Get keyboard layout specific localized key name
 std::string GetScanCodeName(uint16_t scanCode);

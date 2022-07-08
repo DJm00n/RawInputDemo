@@ -12,7 +12,7 @@
 #include <array>
 #include <cwctype>
 #include <codecvt>
-#include <charconv>
+#include <map>
 
 RawInputDeviceManager rawDeviceManager;
 
@@ -139,6 +139,21 @@ void WndProc_OnDestroy(HWND /*hWnd*/)
     PostQuitMessage(0);
 }
 
+// scanCode => key name in current keyboard layout
+std::map<uint16_t, std::string> keyNames;
+
+void UpdateKeyNames()
+{
+    keyNames.clear();
+    for (UINT vk = 0; vk < 0xff; ++vk)
+    {
+        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
+        std::string keyName = GetScanCodeName(scanCode);
+        if (!keyName.empty())
+            keyNames.insert_or_assign(scanCode, keyName);
+    }
+}
+
 BOOL WndProc_OnInputLangChange(HWND hwnd, UINT codePage, HKL hkl)
 {
     DBGPRINT("WM_INPUTLANGCHANGE: hkl=0x%08x", hkl);
@@ -168,6 +183,8 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, UINT codePage, HKL hkl)
     DBGPRINT("Switched to `%s`", layoutDescription.c_str());
 
     std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();
+
+    UpdateKeyNames();
 
     return TRUE;
 }
@@ -240,13 +257,31 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
         break;
     }
 
-    std::string ch = ToUnicodeWrapper(scanCode, ::GetAsyncKeyState(VK_SHIFT));
+    std::string ch = GetStrFromKeyPress(scanCode, ::GetAsyncKeyState(VK_SHIFT));
     std::string name = GetScanCodeName(scanCode);
 
     DBGPRINT("WM_KEYDOWN: vk=%s, sc=0x%04x, ch=`%s`, keyName=`%s`\n",
         VkToString(vk).c_str(),
         scanCode,
         GetUnicodeCharacterNames(ch).c_str(), name.c_str());
+
+    for (auto& key : keyNames)
+    {
+        UINT vk = MapVirtualKeyW(key.first, MAPVK_VSC_TO_VK_EX);
+        UINT scanCode = key.first;//MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
+        std::string keyName = keyNames.count(scanCode) ? keyNames.at(scanCode) : "";
+
+        wchar_t wch = MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR);
+        std::string ch(utf8::narrow(&wch, 1));
+
+        if (scanCode != 0 && !ch.empty()/* && vk != vk2*/)
+        {
+            DBGPRINT("vk=%s, sc=0x%04x, keyName=`%s`, ch=`%s`\n",
+                VkToString(vk).c_str(),
+                scanCode, keyName.c_str(),
+                GetUnicodeCharacterNames(ch).c_str());
+        }
+    }
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)

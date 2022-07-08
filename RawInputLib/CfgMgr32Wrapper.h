@@ -23,7 +23,7 @@ inline std::vector<uint8_t> GetDeviceInterfaceProperty(const std::string& device
     DCHECK_EQ(cr, CR_SUCCESS);
     DCHECK_EQ(propertyType, expectedPropertyType);
 
-    return std::move(propertyData);
+    return propertyData;
 }
 
 inline DEVINST OpenDevNode(const std::string& deviceInstanceId)
@@ -55,7 +55,7 @@ inline std::vector<uint8_t> GetDevNodeProperty(DEVINST devInst, const DEVPROPKEY
     DCHECK_EQ(cr, CR_SUCCESS);
     DCHECK_EQ(propertyType, expectedPropertyType);
 
-    return std::move(propertyData);
+    return propertyData;
 }
 
 template<typename T> T PropertyDataCast(const std::vector<uint8_t>& propertyData)

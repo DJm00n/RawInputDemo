@@ -21,7 +21,7 @@ namespace utf8
     */
     std::string narrow(const wchar_t* s, size_t nch)
     {
-        if (!s)
+        if (!s || *s == L'\0')
             return string();
 
         int nsz = WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0, 0, 0);
@@ -31,7 +31,7 @@ namespace utf8
         string out(nsz, 0);
         WideCharToMultiByte(CP_UTF8, 0, s, (nch ? (int)nch : -1), &out[0], nsz, 0, 0);
         if (!nch)
-            out.resize(nsz - 1); //output is null-terminated
+            out.resize((size_t)nsz - 1); //output is null-terminated
         return out;
     }
 
@@ -48,7 +48,7 @@ namespace utf8
 
         string out(nsz, 0);
         WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, &out[0], nsz, 0, 0);
-        out.resize(nsz - 1); //output is null-terminated
+        out.resize((size_t)nsz - 1); //output is null-terminated
         return out;
     }
 
@@ -60,7 +60,7 @@ namespace utf8
     */
     std::wstring widen(const char* s, size_t nch)
     {
-        if (!s)
+        if (!s || *s == '\0')
             return wstring();
 
         int wsz = MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), 0, 0);
@@ -70,7 +70,7 @@ namespace utf8
         wstring out(wsz, 0);
         MultiByteToWideChar(CP_UTF8, 0, s, (nch ? (int)nch : -1), &out[0], wsz);
         if (!nch)
-            out.resize(wsz - 1); //output is null-terminated
+            out.resize((size_t)wsz - 1); //output is null-terminated
         return out;
     }
 
@@ -87,7 +87,7 @@ namespace utf8
 
         wstring out(wsz, 0);
         MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &out[0], wsz);
-        out.resize(wsz - 1); //output is null-terminated
+        out.resize((size_t)wsz - 1); //output is null-terminated
         return out;
     }
 }
@@ -392,30 +392,49 @@ std::string GetKeyboardLayoutDisplayName(LPCWSTR pwszKLID)
 }
 
 // Returns UTF-8 string
-std::string ToUnicodeWrapper(uint16_t scanCode, bool isShift)
+std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
 {
-    const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
-    const uint32_t flags = 1 << 2; // Do not change keyboard state of this thread
+    static BYTE keyboardState[256];
+    memset(keyboardState, 0, 256);
 
-    static uint8_t state[256] = { 0 };
+    if (isShift)
+    {
+        keyboardState[VK_SHIFT] |= 0x80;
+    }
 
-    state[VK_SHIFT] = isShift ? 0x80 : 0x00;
-
-    wchar_t utf16Chars[10] = { 0 };
+    wchar_t chars[5] = { 0 };
+    const UINT vkCode = ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
     // This call can produce multiple UTF-16 code points
     // in case of ligatures or non-BMP Unicode chars that have hi and low surrogate
     // See examples: https://kbdlayout.info/features/ligatures
-    int charCount = ::ToUnicode(vkCode, scanCode, state, utf16Chars, 10, flags);
+    int code = ::ToUnicode(vkCode, scanCode, keyboardState, chars, 4, 0);
 
-    // negative value is returned on dead key press
-    if (charCount < 0)
-        charCount = -charCount;
+    if (code < 0)
+    {
+        // Dead key
+        if (chars[0] == 0 || std::iswcntrl(chars[0])) {
+            return {};
+        }
 
-    // do not return blank space and control characters
-    if ((charCount == 1) && (std::iswblank(utf16Chars[0]) || std::iswcntrl(utf16Chars[0])))
-        charCount = 0;
+        code = -code;
+    }
 
-    return utf8::narrow(utf16Chars, charCount);
+    // Clear keyboard state
+    {
+        memset(keyboardState, 0, 256);
+
+        const UINT clearVkCode = VK_DECIMAL;
+        const UINT clearScanCode = ::MapVirtualKeyW(clearVkCode, MAPVK_VK_TO_VSC);
+        wchar_t tmpChars[5] = { 0 };
+        do {} while (::ToUnicode(clearVkCode, clearScanCode, keyboardState, tmpChars, 4, 0) < 0);
+    }
+
+    // Do not return control characters
+    if (code <= 0 || (code == 1 && std::iswcntrl(chars[0]))) {
+        return {};
+    }
+
+    return utf8::narrow(chars, code);
 }
 
 // Get keyboard layout specific localized key name
@@ -448,7 +467,6 @@ std::string GetScanCodeName(uint16_t scanCode)
     case 0x17:
     case 0x18:
     case 0x19:
-    case 0x2b:
     case 0x1a:
     case 0x1b:
     case 0x1e:
@@ -462,8 +480,7 @@ std::string GetScanCodeName(uint16_t scanCode)
     case 0x26:
     case 0x27:
     case 0x28:
-    case 0x56:
-    case 0x2a:
+    case 0x2b:
     case 0x2c:
     case 0x2d:
     case 0x2e:
@@ -474,7 +491,8 @@ std::string GetScanCodeName(uint16_t scanCode)
     case 0x33:
     case 0x34:
     case 0x35:
-        return ToUnicodeWrapper(scanCode);
+    case 0x56:
+        return GetStrFromKeyPress(scanCode);
     }
 
     // Some extended keys doesn't work properly with GetKeyNameTextW API
