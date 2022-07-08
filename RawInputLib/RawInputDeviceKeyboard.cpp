@@ -28,63 +28,6 @@ RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
     //DBGPRINT("Removed Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
-// Get keyboard layout specific localized key name
-static std::string GetScanCodeName(uint16_t scanCode)
-{
-    const bool isExtendedKey = scanCode & 0xff00;
-
-    // Some extended keys doesn't work properly with GetKeyNameTextW API
-    if (isExtendedKey)
-    {
-        const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
-        switch (vkCode)
-        {
-        case VK_BROWSER_BACK:
-            return "Browser Back";
-        case VK_BROWSER_FORWARD:
-            return "Browser Forward";
-        case VK_BROWSER_REFRESH:
-            return "Browser Refresh";
-        case VK_BROWSER_STOP:
-            return "Browser Stop";
-        case VK_BROWSER_SEARCH:
-            return "Browser Search";
-        case VK_BROWSER_FAVORITES:
-            return "Browser Favorites";
-        case VK_BROWSER_HOME:
-            return "Browser Home";
-        case VK_VOLUME_MUTE:
-            return "Volume Mute";
-        case VK_VOLUME_DOWN:
-            return "Volume Down";
-        case VK_VOLUME_UP:
-            return "Volume Up";
-        case VK_MEDIA_NEXT_TRACK:
-            return "Next Track";
-        case VK_MEDIA_PREV_TRACK:
-            return "Previous Track";
-        case VK_MEDIA_STOP:
-            return "Media Stop";
-        case VK_MEDIA_PLAY_PAUSE:
-            return "Media Play/Pause";
-        case VK_LAUNCH_MAIL:
-            return "Launch Mail";
-        case VK_LAUNCH_MEDIA_SELECT:
-            return "Launch Media Selector";
-        case VK_LAUNCH_APP1:
-            return "Launch App 1";
-        case VK_LAUNCH_APP2:
-            return "Launch App 2";
-        }
-    }
-
-    const LPARAM lParam = MAKELPARAM(0, (isExtendedKey ? KF_EXTENDED : 0) | (scanCode & 0xff));
-    wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(static_cast<LONG>(lParam), name, static_cast<int>(std::size(name)));
-
-    return utf8::narrow(name, nameSize);
-}
-
 // DIK_* codes are almost same thing as scancode
 // but packed into one byte with high-order bit set for extended keys
 static uint8_t ScanCodeToDIKCode(uint16_t scanCode)
@@ -141,7 +84,7 @@ static std::string DIKCodeToString(uint8_t dikKey)
     keyName.diph.dwHeaderSize = sizeof(DIPROPHEADER);
     keyName.diph.dwObj = dikKey;
     keyName.diph.dwHow = DIPH_BYOFFSET;
-    HRESULT res = directInputKeyboard->GetProperty(DIPROP_KEYNAME, &keyName.diph);
+    /*HRESULT res = */directInputKeyboard->GetProperty(DIPROP_KEYNAME, &keyName.diph);
     //CHECK(SUCCEEDED(res));
 
     return utf8::narrow(keyName.wsz);
@@ -179,13 +122,13 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         scanCode &= 0x7f;
 
         // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
+        // See https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/translate.pdf
         scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
         scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
     }
     else
     {
         // Windows may not report scan codes for some buttons (like multimedia buttons).
-        // Get scan code from VK code in this case.
         scanCode = LOWORD(MapVirtualKeyW(keyboard.VKey, MAPVK_VK_TO_VSC_EX));
     }
 
@@ -201,8 +144,8 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     case 0x0045:            // Pause
         scanCode = 0xe045;  // -> NumLock
         break;
-    case 0x0054:            // Sys Req (Alt + Prnt Scrn)
-        scanCode = 0xe037;  // -> Prnt Scrn
+    case 0x0054:            // SysReq (Alt + PrntScrn)
+        scanCode = 0xe037;  // -> PrntScrn
         break;
     }
 
@@ -225,14 +168,14 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     uint16_t scanCode2 = DIKCodeToScanCode(dikCode);
     CHECK_EQ(scanCode, scanCode2);
 
-    DBGPRINT("Keyboard '%s': %s `%s` Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(0x%02x), ScanCodeName(`%s`), DIKCode(0x%02x), DIKCodeName(`%s`)\n",
+    DBGPRINT("Keyboard '%s': %s `%s` Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(%s), ScanCodeName(`%s`), DIKCode(0x%02x), DIKCodeName(`%s`)\n",
         GetInterfacePath().c_str(),
         keyUp ? "release" : "press",
         keyName.c_str(),
         HIWORD(usbKeyCode),
         LOWORD(usbKeyCode),
         scanCode,
-        vkCode,
+        VkToString(vkCode).c_str(),
         scanCodeName.c_str(),
         dikCode,
         dikCodeName.c_str());

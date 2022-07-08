@@ -150,7 +150,7 @@ std::string GetUCharNameWrapper(char32_t codePoint)
 
     int errorCode = 0;
     std::array<char, 512> buffer;
-    int32_t length = pfnU_charName(codePoint, 2/*U_UNICODE_CHAR_NAME*/ , buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
+    int32_t length = pfnU_charName(codePoint, 2/*U_EXTENDED_CHAR_NAME*/ , buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
 
     if (errorCode != 0)
         return {};
@@ -389,6 +389,356 @@ std::string GetKeyboardLayoutDisplayName(LPCWSTR pwszKLID)
     CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
 
     return utf8::narrow(layoutName);
+}
+
+// Returns UTF-8 string
+std::string ToUnicodeWrapper(uint16_t scanCode, bool isShift)
+{
+    const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+    const uint32_t flags = 1 << 2; // Do not change keyboard state of this thread
+
+    static uint8_t state[256] = { 0 };
+
+    state[VK_SHIFT] = isShift ? 0x80 : 0x00;
+
+    wchar_t utf16Chars[10] = { 0 };
+    // This call can produce multiple UTF-16 code points
+    // in case of ligatures or non-BMP Unicode chars that have hi and low surrogate
+    // See examples: https://kbdlayout.info/features/ligatures
+    int charCount = ::ToUnicode(vkCode, scanCode, state, utf16Chars, 10, flags);
+
+    // negative value is returned on dead key press
+    if (charCount < 0)
+        charCount = -charCount;
+
+    // do not return blank space and control characters
+    if ((charCount == 1) && (std::iswblank(utf16Chars[0]) || std::iswcntrl(utf16Chars[0])))
+        charCount = 0;
+
+    return utf8::narrow(utf16Chars, charCount);
+}
+
+// Get keyboard layout specific localized key name
+std::string GetScanCodeName(uint16_t scanCode)
+{
+    // GetKeyNameText is not working for these keys
+    // due to use of broken MapVirtualKey(scanCode, MAPVK_VK_TO_CHAR) under the hood
+    // See https://stackoverflow.com/a/72464584/1795050
+    switch (scanCode)
+    {
+    case 0x02:
+    case 0x03:
+    case 0x04:
+    case 0x05:
+    case 0x06:
+    case 0x07:
+    case 0x08:
+    case 0x09:
+    case 0x0a:
+    case 0x0b:
+    case 0x0c:
+    case 0x0d:
+    case 0x10:
+    case 0x11:
+    case 0x12:
+    case 0x13:
+    case 0x14:
+    case 0x15:
+    case 0x16:
+    case 0x17:
+    case 0x18:
+    case 0x19:
+    case 0x2b:
+    case 0x1a:
+    case 0x1b:
+    case 0x1e:
+    case 0x1f:
+    case 0x20:
+    case 0x21:
+    case 0x22:
+    case 0x23:
+    case 0x24:
+    case 0x25:
+    case 0x26:
+    case 0x27:
+    case 0x28:
+    case 0x56:
+    case 0x2a:
+    case 0x2c:
+    case 0x2d:
+    case 0x2e:
+    case 0x2f:
+    case 0x30:
+    case 0x31:
+    case 0x32:
+    case 0x33:
+    case 0x34:
+    case 0x35:
+        return ToUnicodeWrapper(scanCode);
+    }
+
+    // Some extended keys doesn't work properly with GetKeyNameTextW API
+    if (scanCode & 0xff00)
+    {
+        const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+        switch (vkCode)
+        {
+        case VK_BROWSER_BACK:
+            return "Browser Back";
+        case VK_BROWSER_FORWARD:
+            return "Browser Forward";
+        case VK_BROWSER_REFRESH:
+            return "Browser Refresh";
+        case VK_BROWSER_STOP:
+            return "Browser Stop";
+        case VK_BROWSER_SEARCH:
+            return "Browser Search";
+        case VK_BROWSER_FAVORITES:
+            return "Browser Favorites";
+        case VK_BROWSER_HOME:
+            return "Browser Home";
+        case VK_VOLUME_MUTE:
+            return "Volume Mute";
+        case VK_VOLUME_DOWN:
+            return "Volume Down";
+        case VK_VOLUME_UP:
+            return "Volume Up";
+        case VK_MEDIA_NEXT_TRACK:
+            return "Next Track";
+        case VK_MEDIA_PREV_TRACK:
+            return "Previous Track";
+        case VK_MEDIA_STOP:
+            return "Media Stop";
+        case VK_MEDIA_PLAY_PAUSE:
+            return "Media Play/Pause";
+        case VK_LAUNCH_MAIL:
+            return "Launch Mail";
+        case VK_LAUNCH_MEDIA_SELECT:
+            return "Launch Media Selector";
+        case VK_LAUNCH_APP1:
+            return "Launch App 1";
+        case VK_LAUNCH_APP2:
+            return "Launch App 2";
+        }
+    }
+
+    const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));
+    wchar_t name[128] = {};
+    size_t nameSize = ::GetKeyNameTextW(static_cast<LONG>(lParam), name, static_cast<int>(std::size(name)));
+
+    return utf8::narrow(name, nameSize);
+}
+
+std::string VkToString(uint16_t vk)
+{
+#define printvk(vk) case vk: return #vk
+    switch (vk)
+    {
+        printvk(VK_LBUTTON);
+        printvk(VK_RBUTTON);
+        printvk(VK_CANCEL);
+        printvk(VK_MBUTTON);
+        printvk(VK_XBUTTON1);
+        printvk(VK_XBUTTON2);
+        printvk(VK_BACK);
+        printvk(VK_TAB);
+        printvk(VK_CLEAR);
+        printvk(VK_RETURN);
+        printvk(VK_SHIFT);
+        printvk(VK_CONTROL);
+        printvk(VK_MENU);
+        printvk(VK_PAUSE);
+        printvk(VK_CAPITAL);
+        printvk(VK_KANA);
+        printvk(VK_IME_ON);
+        printvk(VK_JUNJA);
+        printvk(VK_FINAL);
+        printvk(VK_HANJA);
+        printvk(VK_IME_OFF);
+        printvk(VK_ESCAPE);
+        printvk(VK_CONVERT);
+        printvk(VK_NONCONVERT);
+        printvk(VK_ACCEPT);
+        printvk(VK_MODECHANGE);
+        printvk(VK_SPACE);
+        printvk(VK_PRIOR);
+        printvk(VK_NEXT);
+        printvk(VK_END);
+        printvk(VK_HOME);
+        printvk(VK_LEFT);
+        printvk(VK_UP);
+        printvk(VK_RIGHT);
+        printvk(VK_DOWN);
+        printvk(VK_SELECT);
+        printvk(VK_PRINT);
+        printvk(VK_EXECUTE);
+        printvk(VK_SNAPSHOT);
+        printvk(VK_INSERT);
+        printvk(VK_DELETE);
+        printvk(VK_HELP);
+        printvk(VK_LWIN);
+        printvk(VK_RWIN);
+        printvk(VK_APPS);
+        printvk(VK_SLEEP);
+        printvk(VK_NUMPAD0);
+        printvk(VK_NUMPAD1);
+        printvk(VK_NUMPAD2);
+        printvk(VK_NUMPAD3);
+        printvk(VK_NUMPAD4);
+        printvk(VK_NUMPAD5);
+        printvk(VK_NUMPAD6);
+        printvk(VK_NUMPAD7);
+        printvk(VK_NUMPAD8);
+        printvk(VK_NUMPAD9);
+        printvk(VK_MULTIPLY);
+        printvk(VK_ADD);
+        printvk(VK_SEPARATOR);
+        printvk(VK_SUBTRACT);
+        printvk(VK_DECIMAL);
+        printvk(VK_DIVIDE);
+        printvk(VK_F1);
+        printvk(VK_F2);
+        printvk(VK_F3);
+        printvk(VK_F4);
+        printvk(VK_F5);
+        printvk(VK_F6);
+        printvk(VK_F7);
+        printvk(VK_F8);
+        printvk(VK_F9);
+        printvk(VK_F10);
+        printvk(VK_F11);
+        printvk(VK_F12);
+        printvk(VK_F13);
+        printvk(VK_F14);
+        printvk(VK_F15);
+        printvk(VK_F16);
+        printvk(VK_F17);
+        printvk(VK_F18);
+        printvk(VK_F19);
+        printvk(VK_F20);
+        printvk(VK_F21);
+        printvk(VK_F22);
+        printvk(VK_F23);
+        printvk(VK_F24);
+        printvk(VK_NAVIGATION_VIEW);
+        printvk(VK_NAVIGATION_MENU);
+        printvk(VK_NAVIGATION_UP);
+        printvk(VK_NAVIGATION_DOWN);
+        printvk(VK_NAVIGATION_LEFT);
+        printvk(VK_NAVIGATION_RIGHT);
+        printvk(VK_NAVIGATION_ACCEPT);
+        printvk(VK_NAVIGATION_CANCEL);
+        printvk(VK_NUMLOCK);
+        printvk(VK_SCROLL);
+        printvk(VK_OEM_NEC_EQUAL);
+        printvk(VK_OEM_FJ_MASSHOU);
+        printvk(VK_OEM_FJ_TOUROKU);
+        printvk(VK_OEM_FJ_LOYA);
+        printvk(VK_OEM_FJ_ROYA);
+        printvk(VK_LSHIFT);
+        printvk(VK_RSHIFT);
+        printvk(VK_LCONTROL);
+        printvk(VK_RCONTROL);
+        printvk(VK_LMENU);
+        printvk(VK_RMENU);
+        printvk(VK_BROWSER_BACK);
+        printvk(VK_BROWSER_FORWARD);
+        printvk(VK_BROWSER_REFRESH);
+        printvk(VK_BROWSER_STOP);
+        printvk(VK_BROWSER_SEARCH);
+        printvk(VK_BROWSER_FAVORITES);
+        printvk(VK_BROWSER_HOME);
+        printvk(VK_VOLUME_MUTE);
+        printvk(VK_VOLUME_DOWN);
+        printvk(VK_VOLUME_UP);
+        printvk(VK_MEDIA_NEXT_TRACK);
+        printvk(VK_MEDIA_PREV_TRACK);
+        printvk(VK_MEDIA_STOP);
+        printvk(VK_MEDIA_PLAY_PAUSE);
+        printvk(VK_LAUNCH_MAIL);
+        printvk(VK_LAUNCH_MEDIA_SELECT);
+        printvk(VK_LAUNCH_APP1);
+        printvk(VK_LAUNCH_APP2);
+        printvk(VK_OEM_1);
+        printvk(VK_OEM_PLUS);
+        printvk(VK_OEM_COMMA);
+        printvk(VK_OEM_MINUS);
+        printvk(VK_OEM_PERIOD);
+        printvk(VK_OEM_2);
+        printvk(VK_OEM_3);
+        printvk(VK_GAMEPAD_A);
+        printvk(VK_GAMEPAD_B);
+        printvk(VK_GAMEPAD_X);
+        printvk(VK_GAMEPAD_Y);
+        printvk(VK_GAMEPAD_RIGHT_SHOULDER);
+        printvk(VK_GAMEPAD_LEFT_SHOULDER);
+        printvk(VK_GAMEPAD_LEFT_TRIGGER);
+        printvk(VK_GAMEPAD_RIGHT_TRIGGER);
+        printvk(VK_GAMEPAD_DPAD_UP);
+        printvk(VK_GAMEPAD_DPAD_DOWN);
+        printvk(VK_GAMEPAD_DPAD_LEFT);
+        printvk(VK_GAMEPAD_DPAD_RIGHT);
+        printvk(VK_GAMEPAD_MENU);
+        printvk(VK_GAMEPAD_VIEW);
+        printvk(VK_GAMEPAD_LEFT_THUMBSTICK_BUTTON);
+        printvk(VK_GAMEPAD_RIGHT_THUMBSTICK_BUTTON);
+        printvk(VK_GAMEPAD_LEFT_THUMBSTICK_UP);
+        printvk(VK_GAMEPAD_LEFT_THUMBSTICK_DOWN);
+        printvk(VK_GAMEPAD_LEFT_THUMBSTICK_RIGHT);
+        printvk(VK_GAMEPAD_LEFT_THUMBSTICK_LEFT);
+        printvk(VK_GAMEPAD_RIGHT_THUMBSTICK_UP);
+        printvk(VK_GAMEPAD_RIGHT_THUMBSTICK_DOWN);
+        printvk(VK_GAMEPAD_RIGHT_THUMBSTICK_RIGHT);
+        printvk(VK_GAMEPAD_RIGHT_THUMBSTICK_LEFT);
+        printvk(VK_OEM_4);
+        printvk(VK_OEM_5);
+        printvk(VK_OEM_6);
+        printvk(VK_OEM_7);
+        printvk(VK_OEM_8);
+        printvk(VK_OEM_AX);
+        printvk(VK_OEM_102);
+        printvk(VK_ICO_HELP);
+        printvk(VK_ICO_00);
+        printvk(VK_PROCESSKEY);
+        printvk(VK_ICO_CLEAR);
+        printvk(VK_PACKET);
+        printvk(VK_OEM_RESET);
+        printvk(VK_OEM_JUMP);
+        printvk(VK_OEM_PA1);
+        printvk(VK_OEM_PA2);
+        printvk(VK_OEM_PA3);
+        printvk(VK_OEM_WSCTRL);
+        printvk(VK_OEM_CUSEL);
+        printvk(VK_OEM_ATTN);
+        printvk(VK_OEM_FINISH);
+        printvk(VK_OEM_COPY);
+        printvk(VK_OEM_AUTO);
+        printvk(VK_OEM_ENLW);
+        printvk(VK_OEM_BACKTAB);
+        printvk(VK_ATTN);
+        printvk(VK_CRSEL);
+        printvk(VK_EXSEL);
+        printvk(VK_EREOF);
+        printvk(VK_PLAY);
+        printvk(VK_ZOOM);
+        printvk(VK_NONAME);
+        printvk(VK_PA1);
+        printvk(VK_OEM_CLEAR);
+    }
+#undef printvk
+
+    std::array<char, 10> str;
+    if ((vk >= (uint16_t)'A') && (vk <= (uint16_t)'Z') ||
+        (vk >= (uint16_t)'0') && (vk <= (uint16_t)'9'))
+    {
+        std::snprintf(str.data(), str.size(), "VK_%c", vk);
+    }
+    else
+    {
+        std::snprintf(str.data(), str.size(), "0x%x", vk);
+    }
+
+    return std::string(str.data(), str.size());
 }
 
 //#ifdef _DEBUG

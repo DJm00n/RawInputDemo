@@ -47,7 +47,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
         return;
     }
 
-    const RAWHID& hid = input->data.hid;
+    //const RAWHID& hid = input->data.hid;
 
     /*for (DWORD i = 0; i < hid.dwCount; ++i)
     {

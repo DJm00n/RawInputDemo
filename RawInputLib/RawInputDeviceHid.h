@@ -82,7 +82,7 @@ private:
 
     std::string m_XInputInterfacePath;
 
-    // Index of the XInput controller. Can be a value in the range 0–3.
+    // Index of the XInput controller. Can be a value in the range 0-3.
     // Or |kInvalidXInputUserId| if not an XInput controller.
     // https://docs.microsoft.com/windows/win32/xinput/getting-started-with-xinput#multiple-controllers
     uint8_t m_XInputUserIndex = kInvalidXInputUserId; // XUSER_INDEX_ANY

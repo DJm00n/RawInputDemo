@@ -130,6 +130,14 @@ BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID);
 // It mimics GetLayoutDescription() from input.dll but lacks IME layout support
 std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID);
 
+// Returns UTF-8 string that will be printed on key press
+std::string ToUnicodeWrapper(uint16_t scanCode, bool isShift = false);
+
+// Get keyboard layout specific localized key name
+std::string GetScanCodeName(uint16_t scanCode);
+
+std::string VkToString(uint16_t vk);
+
 //#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
 VOID DebugPrint(const char* function_name, unsigned int line_number, const char* format, ...);
