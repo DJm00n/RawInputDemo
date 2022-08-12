@@ -440,104 +440,72 @@ std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
 // Get keyboard layout specific localized key name
 std::string GetScanCodeName(uint16_t scanCode)
 {
-    // GetKeyNameText is not working for these keys
-    // due to use of broken MapVirtualKey(scanCode, MAPVK_VK_TO_CHAR) under the hood
-    // See https://stackoverflow.com/a/72464584/1795050
     switch (scanCode)
     {
-    case 0x02:
-    case 0x03:
-    case 0x04:
-    case 0x05:
-    case 0x06:
-    case 0x07:
-    case 0x08:
-    case 0x09:
-    case 0x0a:
-    case 0x0b:
-    case 0x0c:
-    case 0x0d:
-    case 0x10:
-    case 0x11:
-    case 0x12:
-    case 0x13:
-    case 0x14:
-    case 0x15:
-    case 0x16:
-    case 0x17:
-    case 0x18:
-    case 0x19:
-    case 0x1a:
-    case 0x1b:
-    case 0x1e:
-    case 0x1f:
-    case 0x20:
-    case 0x21:
-    case 0x22:
-    case 0x23:
-    case 0x24:
-    case 0x25:
-    case 0x26:
-    case 0x27:
-    case 0x28:
-    case 0x2b:
-    case 0x2c:
-    case 0x2d:
-    case 0x2e:
-    case 0x2f:
-    case 0x30:
-    case 0x31:
-    case 0x32:
-    case 0x33:
-    case 0x34:
-    case 0x35:
-    case 0x56:
-        return GetStrFromKeyPress(scanCode);
+        case 0xe010: // VK_MEDIA_PREV_TRACK
+            return "Previous Track";
+        case 0xe019: // VK_MEDIA_NEXT_TRACK
+            return "Next Track";
+        case 0xe020: // VK_VOLUME_MUTE
+            return "Volume Mute";
+        case 0xe021: // VK_LAUNCH_APP2
+            return "Launch App 2";
+        case 0xe022: // VK_MEDIA_PLAY_PAUSE
+            return "Media Play/Pause";
+        case 0xe024: // VK_MEDIA_STOP
+            return "Media Stop";
+        case 0xe02e: // VK_VOLUME_DOWN
+            return "Volume Down";
+        case 0xe030: // VK_VOLUME_UP
+            return "Volume Up";
+        case 0xe032: // VK_BROWSER_HOME
+            return "Browser Home";
+        case 0xe05e: // System Power (no VK code)
+            return "System Power";
+        case 0xe05f: // VK_SLEEP
+            return "System Sleep";
+        case 0xe063: // System Wake (no VK code)
+            return "System Wake";
+        case 0xe065: // VK_BROWSER_SEARCH
+            return "Browser Search";
+        case 0xe066: // VK_BROWSER_FAVORITES
+            return "Browser Favorites";
+        case 0xe067: // VK_BROWSER_REFRESH
+            return "Browser Refresh";
+        case 0xe068: // VK_BROWSER_STOP
+            return "Browser Stop";
+        case 0xe069: // VK_BROWSER_FORWARD
+            return "Browser Forward";
+        case 0xe06a: // VK_BROWSER_BACK
+            return "Browser Back";
+        case 0xe06b: // VK_LAUNCH_APP1
+            return "Launch App 1";
+        case 0xe06c: // VK_LAUNCH_MAIL
+            return "Launch Mail";
+        case 0xe06d: // VK_LAUNCH_MEDIA_SELECT
+            return "Launch Media Selector";
     }
 
-    // Some extended keys doesn't work properly with GetKeyNameTextW API
-    if (scanCode & 0xff00)
+    std::wstring keyText = utf8::widen(GetStrFromKeyPress(scanCode));
+    if (!keyText.empty() && std::iswgraph(keyText[0]))
     {
-        const uint16_t vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
-        switch (vkCode)
-        {
-        case VK_BROWSER_BACK:
-            return "Browser Back";
-        case VK_BROWSER_FORWARD:
-            return "Browser Forward";
-        case VK_BROWSER_REFRESH:
-            return "Browser Refresh";
-        case VK_BROWSER_STOP:
-            return "Browser Stop";
-        case VK_BROWSER_SEARCH:
-            return "Browser Search";
-        case VK_BROWSER_FAVORITES:
-            return "Browser Favorites";
-        case VK_BROWSER_HOME:
-            return "Browser Home";
-        case VK_VOLUME_MUTE:
-            return "Volume Mute";
-        case VK_VOLUME_DOWN:
-            return "Volume Down";
-        case VK_VOLUME_UP:
-            return "Volume Up";
-        case VK_MEDIA_NEXT_TRACK:
-            return "Next Track";
-        case VK_MEDIA_PREV_TRACK:
-            return "Previous Track";
-        case VK_MEDIA_STOP:
-            return "Media Stop";
-        case VK_MEDIA_PLAY_PAUSE:
-            return "Media Play/Pause";
-        case VK_LAUNCH_MAIL:
-            return "Launch Mail";
-        case VK_LAUNCH_MEDIA_SELECT:
-            return "Launch Media Selector";
-        case VK_LAUNCH_APP1:
-            return "Launch App 1";
-        case VK_LAUNCH_APP2:
-            return "Launch App 2";
-        }
+        constexpr LPCWSTR currentLocale = LOCALE_NAME_USER_DEFAULT;
+        constexpr DWORD toUpperFlags = LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING;
+        int len = ::LCMapStringEx(currentLocale,
+            toUpperFlags,
+            keyText.c_str(), static_cast<int>(keyText.size()),
+            nullptr, 0,
+            nullptr, nullptr, 0);
+        CHECK_GE(len, 1);
+
+        std::unique_ptr<wchar_t[]> buffer(new wchar_t[len]);
+        ::LCMapStringEx(currentLocale,
+            toUpperFlags,
+            keyText.c_str(), static_cast<int>(keyText.size()),
+            buffer.get(), len,
+            nullptr, nullptr, 0);
+
+        return utf8::narrow(buffer.get(), len);
     }
 
     const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));

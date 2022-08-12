@@ -113,8 +113,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
+// scanCode => key name in current keyboard layout
+std::map<uint16_t, std::wstring> keyNames;
+
+void UpdateKeyNames()
+{
+    keyNames.clear();
+    for (UINT vk = 0; vk < 0xff; ++vk)
+    {
+        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
+        std::string keyName = GetScanCodeName(scanCode);
+        if (!keyName.empty())
+            keyNames.insert_or_assign(scanCode, utf8::widen(keyName));
+    }
+}
+
 BOOL WndProc_OnCreate(HWND hWnd, LPCREATESTRUCT /*lpCreateStruct*/)
 {
+    UpdateKeyNames();
     return TRUE;
 }
 
@@ -137,21 +153,6 @@ void WndProc_OnCommand(HWND hWnd, int id, HWND hWndCtl, UINT codeNotify)
 void WndProc_OnDestroy(HWND /*hWnd*/)
 {
     PostQuitMessage(0);
-}
-
-// scanCode => key name in current keyboard layout
-std::map<uint16_t, std::string> keyNames;
-
-void UpdateKeyNames()
-{
-    keyNames.clear();
-    for (UINT vk = 0; vk < 0xff; ++vk)
-    {
-        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
-        std::string keyName = GetScanCodeName(scanCode);
-        if (!keyName.empty())
-            keyNames.insert_or_assign(scanCode, keyName);
-    }
 }
 
 BOOL WndProc_OnInputLangChange(HWND hwnd, UINT codePage, HKL hkl)
@@ -269,7 +270,7 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
     {
         UINT vk = MapVirtualKeyW(key.first, MAPVK_VSC_TO_VK_EX);
         UINT scanCode = key.first;//MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
-        std::string keyName = keyNames.count(scanCode) ? keyNames.at(scanCode) : "";
+        std::string keyName = keyNames.count(scanCode) ? utf8::narrow(keyNames.at(scanCode)) : "";
 
         wchar_t wch = MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR);
         std::string ch(utf8::narrow(&wch, 1));
