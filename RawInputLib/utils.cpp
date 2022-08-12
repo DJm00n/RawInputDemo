@@ -391,50 +391,55 @@ std::string GetKeyboardLayoutDisplayName(LPCWSTR pwszKLID)
     return utf8::narrow(layoutName);
 }
 
+// Clears keyboard buffer
+// Needed to avoid side effects on other calls to ToUnicode API
+// http://archives.miloush.net/michkap/archive/2007/10/27/5717859.html
+inline void ClearKeyboardBuffer(uint16_t vkCode)
+{
+    std::array<uint8_t, 256> keyboardState{};
+    std::array<wchar_t, 10> chars{};
+    const uint16_t scanCode = LOWORD(::MapVirtualKeyW(vkCode, MAPVK_VK_TO_VSC_EX));
+    int count = 0;
+    do
+    {
+        count = ::ToUnicode(vkCode, scanCode, keyboardState.data(), chars.data(), static_cast<int>(chars.size()), 0);
+    } while (count < 0);
+}
+
 // Returns UTF-8 string
 std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
 {
-    static BYTE keyboardState[256];
-    memset(keyboardState, 0, 256);
+    std::array<uint8_t, 256> keyboardState{};
+    std::array<wchar_t, 10> chars{};
+    const uint16_t vkCode = LOWORD(::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
 
     if (isShift)
-    {
-        keyboardState[VK_SHIFT] |= 0x80;
-    }
+        keyboardState[VK_SHIFT] = 0x80;
 
-    wchar_t chars[5] = { 0 };
-    const UINT vkCode = ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
-    // This call can produce multiple UTF-16 code points
-    // in case of ligatures or non-BMP Unicode chars that have hi and low surrogate
-    // See examples: https://kbdlayout.info/features/ligatures
-    int code = ::ToUnicode(vkCode, scanCode, keyboardState, chars, 4, 0);
+    ClearKeyboardBuffer(VK_DECIMAL);
 
-    if (code < 0)
+    // For some keyboard layouts ToUnicode() API call can produce multiple chars: UTF-16 surrogate pairs or ligatures.
+    // Such layouts are listed here: https://kbdlayout.info/features/ligatures
+    int count = ::ToUnicode(vkCode, scanCode, keyboardState.data(), chars.data(), static_cast<int>(chars.size()), 0);
+
+    // Negative value means that we have a `dead key`
+    if (count < 0) 
     {
-        // Dead key
-        if (chars[0] == 0 || std::iswcntrl(chars[0])) {
+        if (chars[0] == L'\0' || std::iswcntrl(chars[0])) {
             return {};
         }
 
-        code = -code;
+        count = -count;
     }
 
-    // Clear keyboard state
-    {
-        memset(keyboardState, 0, 256);
-
-        const UINT clearVkCode = VK_DECIMAL;
-        const UINT clearScanCode = ::MapVirtualKeyW(clearVkCode, MAPVK_VK_TO_VSC);
-        wchar_t tmpChars[5] = { 0 };
-        do {} while (::ToUnicode(clearVkCode, clearScanCode, keyboardState, tmpChars, 4, 0) < 0);
-    }
+    ClearKeyboardBuffer(VK_DECIMAL);
 
     // Do not return control characters
-    if (code <= 0 || (code == 1 && std::iswcntrl(chars[0]))) {
+    if (count <= 0 || (count == 1 && std::iswcntrl(chars[0]))) {
         return {};
     }
 
-    return utf8::narrow(chars, code);
+    return utf8::narrow(chars.data(), count);
 }
 
 // Get keyboard layout specific localized key name
@@ -487,7 +492,7 @@ std::string GetScanCodeName(uint16_t scanCode)
     }
 
     std::wstring keyText = utf8::widen(GetStrFromKeyPress(scanCode));
-    if (!keyText.empty() && std::iswgraph(keyText[0]))
+    if (!keyText.empty() && !std::iswblank(keyText[0]))
     {
         constexpr LPCWSTR currentLocale = LOCALE_NAME_USER_DEFAULT;
         constexpr DWORD toUpperFlags = LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING;
