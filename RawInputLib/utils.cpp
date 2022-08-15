@@ -423,7 +423,7 @@ std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
     int count = ::ToUnicode(vkCode, scanCode, keyboardState.data(), chars.data(), static_cast<int>(chars.size()), 0);
 
     // Negative value means that we have a `dead key`
-    if (count < 0) 
+    if (count < 0)
     {
         if (chars[0] == L'\0' || std::iswcntrl(chars[0])) {
             return {};
@@ -491,33 +491,26 @@ std::string GetScanCodeName(uint16_t scanCode)
             return "Launch Media Selector";
     }
 
+    std::array<wchar_t, 128> buffer{};
+    int count = 0;
+
     std::wstring keyText = utf8::widen(GetStrFromKeyPress(scanCode));
     if (!keyText.empty() && !std::iswblank(keyText[0]))
     {
-        constexpr LPCWSTR currentLocale = LOCALE_NAME_USER_DEFAULT;
-        constexpr DWORD toUpperFlags = LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING;
-        int len = ::LCMapStringEx(currentLocale,
-            toUpperFlags,
+        // Convert to uppercase
+        count = ::LCMapStringEx(LOCALE_NAME_USER_DEFAULT,
+            LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING,
             keyText.c_str(), static_cast<int>(keyText.size()),
-            nullptr, 0,
+            buffer.data(), static_cast<int>(buffer.size()),
             nullptr, nullptr, 0);
-        CHECK_GE(len, 1);
-
-        std::unique_ptr<wchar_t[]> buffer(new wchar_t[len]);
-        ::LCMapStringEx(currentLocale,
-            toUpperFlags,
-            keyText.c_str(), static_cast<int>(keyText.size()),
-            buffer.get(), len,
-            nullptr, nullptr, 0);
-
-        return utf8::narrow(buffer.get(), len);
+    }
+    else
+    {
+        const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));
+        count = ::GetKeyNameTextW(static_cast<LONG>(lParam), buffer.data(), static_cast<int>(buffer.size()));
     }
 
-    const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));
-    wchar_t name[128] = {};
-    size_t nameSize = ::GetKeyNameTextW(static_cast<LONG>(lParam), name, static_cast<int>(std::size(name)));
-
-    return utf8::narrow(name, nameSize);
+    return utf8::narrow(buffer.data(), count);
 }
 
 std::string VkToString(uint16_t vk)

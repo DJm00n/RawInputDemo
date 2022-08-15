@@ -122,9 +122,14 @@ void UpdateKeyNames()
     for (UINT vk = 0; vk < 0xff; ++vk)
     {
         UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
+        if (scanCode == 0x00)
+            continue;
+
         std::string keyName = GetScanCodeName(scanCode);
-        if (!keyName.empty())
-            keyNames.insert_or_assign(scanCode, utf8::widen(keyName));
+        if (keyName.empty())
+            continue;
+
+        keyNames.insert_or_assign(scanCode, utf8::widen(keyName));
     }
 }
 
