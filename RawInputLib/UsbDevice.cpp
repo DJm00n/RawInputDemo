@@ -34,10 +34,10 @@ namespace
     constexpr UCHAR HID_HID_DESCRIPTOR_TYPE = 0x21;
     constexpr UCHAR HID_REPORT_DESCRIPTOR_TYPE = 0x22;
 
-    std::unique_ptr<uint8_t[]> GetDescriptor(const ScopedHandle& usbHubHandle, ULONG usbPortIndex, UCHAR descriptorType, USHORT descriptorSize, UCHAR descriptorIndex, USHORT descriptorParam)
+    std::vector<uint8_t> GetDescriptor(const ScopedHandle& usbHubHandle, ULONG usbPortIndex, UCHAR descriptorType, USHORT descriptorSize, UCHAR descriptorIndex, USHORT descriptorParam)
     {
         if (!IsValidHandle(usbHubHandle.get()))
-            return nullptr;
+            return {};
 
         std::vector<uint8_t> buffer(sizeof(USB_DESCRIPTOR_REQUEST) + descriptorSize, 0);
 
@@ -70,30 +70,32 @@ namespace
             nullptr))
         {
             DBGPRINT("DeviceIoControl(IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION) failed. GetLastError() = 0x%04x", ::GetLastError());
-            return nullptr;
+            return {};
         }
 
         if (descriptorSize < (writtenSize - sizeof(USB_DESCRIPTOR_REQUEST)))
-            return nullptr;
+            return {};
 
-        writtenSize -= sizeof(USB_DESCRIPTOR_REQUEST);
+        buffer.resize(writtenSize);
+        buffer.erase(buffer.begin(), buffer.begin() + sizeof(USB_DESCRIPTOR_REQUEST));
 
-        std::unique_ptr<uint8_t[]> retBuffer(std::make_unique<uint8_t[]>(writtenSize));
-        std::memcpy(retBuffer.get(), request->Data, writtenSize);
+        CHECK_EQ(buffer.size(), writtenSize  - sizeof(USB_DESCRIPTOR_REQUEST));
 
-        return retBuffer;
+        return buffer;
     }
 
     bool GetDeviceDescriptor(const ScopedHandle& usbHubHandle, ULONG connectionIndex, USB_DEVICE_DESCRIPTOR& outDeviceDescriptor)
     {
-        std::unique_ptr<uint8_t[]> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_DEVICE_DESCRIPTOR_TYPE, sizeof(USB_DEVICE_DESCRIPTOR), 0, 0);
-        if (!buffer)
+        std::vector<uint8_t> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_DEVICE_DESCRIPTOR_TYPE, sizeof(USB_DEVICE_DESCRIPTOR), 0, 0);
+        if (buffer.empty())
             return false;
 
-        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get());
+        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.data());
 
         if (commonDescriptor->bDescriptorType != USB_DEVICE_DESCRIPTOR_TYPE)
             return false;
+
+        CHECK_EQ(buffer.size(), commonDescriptor->bLength);
 
         std::memcpy(&outDeviceDescriptor, commonDescriptor, commonDescriptor->bLength);
 
@@ -102,14 +104,16 @@ namespace
 
     bool GetConfigurationDescriptor(const ScopedHandle& usbHubHandle, ULONG connectionIndex, UCHAR configurationIndex, USB_CONFIGURATION_DESCRIPTOR& outConfigurationDescriptor)
     {
-        std::unique_ptr<uint8_t[]> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, sizeof(USB_CONFIGURATION_DESCRIPTOR), configurationIndex, 0);
-        if (!buffer)
+        std::vector<uint8_t> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, sizeof(USB_CONFIGURATION_DESCRIPTOR), configurationIndex, 0);
+        if (buffer.empty())
             return false;
 
-        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get());
+        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.data());
 
         if (commonDescriptor->bDescriptorType != USB_CONFIGURATION_DESCRIPTOR_TYPE)
             return false;
+
+        CHECK_EQ(buffer.size(), commonDescriptor->bLength);
 
         std::memcpy(&outConfigurationDescriptor, commonDescriptor, commonDescriptor->bLength);
 
@@ -123,14 +127,18 @@ namespace
             return false;
 
         const USHORT size = configurationDescriptor.wTotalLength;
-        std::unique_ptr<uint8_t[]> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, size, configurationIndex, 0);
+        std::vector<uint8_t> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_CONFIGURATION_DESCRIPTOR_TYPE, size, configurationIndex, 0);
+        if (buffer.empty())
+            return false;
 
-        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.get());
+        const PUSB_COMMON_DESCRIPTOR commonDescriptor = reinterpret_cast<PUSB_COMMON_DESCRIPTOR>(buffer.data());
 
         if (commonDescriptor->bDescriptorType != USB_CONFIGURATION_DESCRIPTOR_TYPE)
             return false;
 
-        outConfigurationDescriptor.assign(buffer.get(), buffer.get() + size);
+        CHECK_EQ(buffer.size(), size);
+
+        outConfigurationDescriptor = buffer;
 
         return true;
     }
@@ -140,11 +148,11 @@ namespace
         if (!stringIndex && languageID)
             return false;
 
-        std::unique_ptr<uint8_t[]> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_STRING_DESCRIPTOR_TYPE, MAXIMUM_USB_STRING_LENGTH, stringIndex, languageID);
-        if (!buffer)
+        std::vector<uint8_t> buffer = GetDescriptor(usbHubHandle, connectionIndex, USB_STRING_DESCRIPTOR_TYPE, MAXIMUM_USB_STRING_LENGTH, stringIndex, languageID);
+        if (buffer.empty())
             return false;
 
-        const PUSB_STRING_DESCRIPTOR stringDescriptor = reinterpret_cast<PUSB_STRING_DESCRIPTOR>(buffer.get());
+        const PUSB_STRING_DESCRIPTOR stringDescriptor = reinterpret_cast<PUSB_STRING_DESCRIPTOR>(buffer.data());
         const size_t count = (stringDescriptor->bLength - sizeof(USB_COMMON_DESCRIPTOR)) / sizeof(WCHAR);
 
         if (!count)
@@ -227,13 +235,29 @@ namespace
 
     bool GetHidReportDescriptor(const ScopedHandle& usbHubHandle, ULONG connectionIndex, USHORT reportLength, UCHAR interfaceNumber, std::vector<uint8_t>& outReportDescriptor)
     {
-        std::unique_ptr<uint8_t[]> buffer = GetDescriptor(usbHubHandle, connectionIndex, HID_REPORT_DESCRIPTOR_TYPE, reportLength, 0, interfaceNumber);
-        if (!buffer)
+        std::vector<uint8_t> buffer = GetDescriptor(usbHubHandle, connectionIndex, HID_REPORT_DESCRIPTOR_TYPE, reportLength, 0, interfaceNumber);
+        if (buffer.empty())
             return false;
 
-        outReportDescriptor.assign(buffer.get(), buffer.get() + reportLength);
+        outReportDescriptor = buffer;
 
         return true;
+    }
+
+    // https://docs.microsoft.com/windows-hardware/drivers/usbcon/enumeration-of-the-composite-parent-device
+    bool IsCompositeUSBDevice(const std::string& deviceInstanceId)
+    {
+        DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
+        std::vector<std::string> usbDeviceCompatibleIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_CompatibleIds, DEVPROP_TYPE_STRING_LIST));
+
+        for (const std::string& usbCompatibleId : usbDeviceCompatibleIds)
+        {
+            stringutils::ci_string tmp(usbCompatibleId.data(), usbCompatibleId.size());
+            if (tmp.find("USB\\COMPOSITE") != stringutils::ci_string::npos)
+                return true;
+        }
+
+        return false;
     }
 
     // According to MSDN the instance IDs for the device nodes created by the
@@ -261,48 +285,67 @@ namespace
 
 UsbDeviceInfo::UsbDeviceInfo(const std::string& hidDeviceInstanceId)
 {
-    m_DeviceInterfacePath = SearchParentDeviceInterface(hidDeviceInstanceId, &GUID_DEVINTERFACE_USB_DEVICE);
-    m_DeviceInstanceId = GetDeviceFromInterface(m_DeviceInterfacePath);
+    std::string usbHubInterface;
+    std::string compositeDeviceInstanceId;
 
-    DEVINST devNodeHandle = OpenDevNode(m_DeviceInstanceId);
-
-    // open handle to wake up device from S3 suspend state
-    ScopedHandle usbInterfaceHandle = OpenDeviceInterface(m_DeviceInterfacePath);
-
-    // device index in parent USB hub
-    // https://docs.microsoft.com/windows-hardware/drivers/ddi/wdm/ns-wdm-_device_capabilities#usb
-    m_UsbPortIndex = PropertyDataCast<ULONG>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Address, DEVPROP_TYPE_UINT32));
-
-    std::vector<std::string> usbDeviceCompatibleIds = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_CompatibleIds, DEVPROP_TYPE_STRING_LIST));
-    for (const std::string& usbCompatibleId : usbDeviceCompatibleIds)
+    for (std::string deviceInstanceId = GetParentDevice(hidDeviceInstanceId); !deviceInstanceId.empty(); deviceInstanceId = GetParentDevice(deviceInstanceId))
     {
-        stringutils::ci_string tmp(usbCompatibleId.data(), usbCompatibleId.size());
-        // https://docs.microsoft.com/windows-hardware/drivers/usbcon/enumeration-of-the-composite-parent-device
-        if (tmp.find("USB\\COMPOSITE") == stringutils::ci_string::npos)
-            continue;
-
-        // Its Composite USB device
-        // Need to acquire interface number in parent USB device
-        // https://docs.microsoft.com/windows-hardware/drivers/usbcon/usb-common-class-generic-parent-driver
-        m_UsbCompositeDeviceInstanceId = GetParentDevice(hidDeviceInstanceId);
-        if (!GetInterfaceNumber(m_UsbCompositeDeviceInstanceId, m_UsbInterfaceNumber))
+        std::string usbDeviceInterface = GetDeviceInterface(deviceInstanceId, &GUID_DEVINTERFACE_USB_DEVICE);
+        if (!usbDeviceInterface.empty())
         {
-            // Try again
-            m_UsbCompositeDeviceInstanceId = GetParentDevice(m_UsbCompositeDeviceInstanceId);
-            if (!GetInterfaceNumber(m_UsbCompositeDeviceInstanceId, m_UsbInterfaceNumber))
+            m_DeviceInterfacePath = usbDeviceInterface;
+        }
+
+        std::string usbHub = GetDeviceInterface(deviceInstanceId, &GUID_DEVINTERFACE_USB_HUB);
+        if (!usbHub.empty())
+        {
+            usbHubInterface = usbHub;
+            break;
+        }
+
+        // May be composite USB device. Save it for later use.
+        if (usbDeviceInterface.empty()) 
+        {
+            compositeDeviceInstanceId = deviceInstanceId;
+        }
+    }
+
+    if (usbHubInterface.empty())
+    {
+        DBGPRINT("UsbDevice: cannot get parent USB hub interface");
+        return;
+    }
+
+    if (!m_DeviceInterfacePath.empty())
+    {
+        m_DeviceInstanceId = GetDeviceFromInterface(m_DeviceInterfacePath);
+
+        DEVINST devNodeHandle = OpenDevNode(m_DeviceInstanceId);
+
+        // Get device index in parent USB hub
+        // https://docs.microsoft.com/windows-hardware/drivers/ddi/wdm/ns-wdm-_device_capabilities#usb
+        m_UsbPortIndex = PropertyDataCast<ULONG>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Address, DEVPROP_TYPE_UINT32));
+
+        // Composite USB device
+        if (IsCompositeUSBDevice(m_DeviceInstanceId))
+        {
+            // Need to acquire interface number in parent USB device
+            // https://docs.microsoft.com/windows-hardware/drivers/usbcon/usb-common-class-generic-parent-driver
+            if (!GetInterfaceNumber(compositeDeviceInstanceId, m_UsbInterfaceNumber))
             {
-                DBGPRINT("UsbDevice: cannot get interface number");
+                DBGPRINT("UsbDevice: cannot get interface number from composite USB device");
                 return;
             }
         }
-        break;
+    }
+    else
+    {
+        DBGPRINT("UsbDevice: cannot get parent USB device interface");
+        return;
     }
 
-    std::string usbHubInterface = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_USB_HUB);
-
-    if (usbHubInterface.empty())
-        return;
-
+    // Open device handle first to wake up device from S3 suspend state
+    ScopedHandle usbInterfaceHandle = OpenDeviceInterface(m_DeviceInterfacePath);
     ScopedHandle hubInterfaceHandle = OpenDeviceInterface(usbHubInterface, true);
 
     USB_DEVICE_DESCRIPTOR deviceDescriptor;
@@ -348,5 +391,7 @@ UsbDeviceInfo::UsbDeviceInfo(const std::string& hidDeviceInstanceId)
 
     // Get raw HID Report Descriptor
     if (!GetHidReportDescriptor(hubInterfaceHandle, m_UsbPortIndex, hidDescriptor->DescriptorList[0].wReportLength, interfaceDescriptor->bInterfaceNumber, m_HidReportDescriptor))
+    {
         DBGPRINT("UsbDevice: cannot get raw HID Report Descriptor");
+    }
 }

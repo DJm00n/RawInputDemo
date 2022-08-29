@@ -23,14 +23,11 @@ public:
     std::string m_SerialNumber;
 
     std::vector<uint8_t> m_ConfigurationDescriptor;
-
-    std::string m_UsbCompositeDeviceInstanceId;
-    UCHAR m_UsbInterfaceNumber = 0;
-
     std::vector<uint8_t> m_HidReportDescriptor;
 
     std::string m_UsbHubInterfacePath;
     ScopedHandle m_UsbHubHandle;
-    ULONG m_UsbPortIndex;
+    ULONG m_UsbPortIndex = 0;
+    UCHAR m_UsbInterfaceNumber = 0;
 
 };
