@@ -6,6 +6,8 @@
 
 #include <cwctype>
 #include <codecvt>
+#include <kbd.h>
+#include <shlwapi.h>
 
 using namespace std;
 
@@ -150,7 +152,7 @@ std::string GetUCharNameWrapper(char32_t codePoint)
 
     int errorCode = 0;
     std::array<char, 512> buffer;
-    int32_t length = pfnU_charName(codePoint, 2/*U_EXTENDED_CHAR_NAME*/ , buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
+    int32_t length = pfnU_charName(codePoint, 2/*U_EXTENDED_CHAR_NAME*/, buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
 
     if (errorCode != 0)
         return {};
@@ -303,7 +305,7 @@ std::string GetLocaleInformation(const std::wstring locale, LCTYPE LCType)
     return utf8::narrow(buffer.get());
 }
 
-BOOL GetKLIDFromHKL(HKL hkl, LPWSTR pwszKLID)
+BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID)
 {
     /*  HKL is a 32 bit value. HIWORD is a Device Handle. LOWORD is Language ID.
         +-------------- +-------------+
@@ -357,33 +359,38 @@ BOOL GetKLIDFromHKL(HKL hkl, LPWSTR pwszKLID)
     return succeded;
 }
 
-std::string GetKeyboardLayoutDisplayName(LPCWSTR pwszKLID)
+std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID)
 {
-    typedef HRESULT(WINAPI* SHLoadIndirectStringFunc)(PCWSTR pszSource, PWSTR pszOutBuf, UINT cchOutBuf, void** ppvReserved);
+    // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
+    // https://github.com/dotnet/winforms/issues/4345
+
+    typedef HRESULT(WINAPI* SHLoadIndirectStringFunc)(PCWSTR pszSource, PWSTR pszOutBuf, UINT cchOutBuf,void** ppvReserved);
     static SHLoadIndirectStringFunc SHLoadIndirectString = reinterpret_cast<SHLoadIndirectStringFunc>(::GetProcAddress(::LoadLibraryA("shlwapi.dll"), "SHLoadIndirectString"));
+
+    if (!SHLoadIndirectString)
+        return {};
 
     HKEY key;
     CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
 
     WCHAR layoutName[MAX_PATH] = {};
     DWORD layoutNameSize = sizeof(layoutName);
-    // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
-    if (::RegGetValueW(key, pwszKLID, L"Layout Display Name", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize) == ERROR_SUCCESS &&
-        SHLoadIndirectString)
+
+    LSTATUS errorCode = ::RegGetValueW(key, pwszKLID, L"Layout Display Name", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize);
+    if (errorCode == ERROR_SUCCESS && SHLoadIndirectString)
     {
-        // Convert string like "@%SystemRoot%\system32\input.dll,-5000" to localized string
+        // Convert string like "@%SystemRoot%\system32\input.dll,-5000" to localized "US" string
         CHECK_EQ(SHLoadIndirectString(layoutName, layoutName, MAX_PATH, nullptr), S_OK);
     }
-
-    if (wcslen(layoutName) == 0)
+    else
     {
         // Fallback to unlocalized layout name
-        ::RegGetValueW(key, pwszKLID, L"Layout Text", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize);
+        CHECK_EQ(::RegGetValueW(key, pwszKLID, L"Layout Text", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize), ERROR_SUCCESS);
     }
 
     if (wcslen(layoutName) == 0)
     {
-        wcscpy(layoutName, pwszKLID);
+        wcscpy(layoutName, L"Unknown layout");
     }
 
     CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
@@ -391,30 +398,49 @@ std::string GetKeyboardLayoutDisplayName(LPCWSTR pwszKLID)
     return utf8::narrow(layoutName);
 }
 
+std::vector<std::string> EnumInstalledKeyboardLayouts()
+{
+    std::vector<std::string> layouts;
+
+    HKEY key;
+    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
+
+    DWORD index = 0;
+    WCHAR layoutName[MAX_PATH] = {};
+    DWORD layoutNameSize = sizeof(layoutName);
+
+    while (::RegEnumKeyExW(key, index, layoutName, &layoutNameSize, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
+    {
+        layouts.emplace_back(utf8::narrow(layoutName));
+        layoutNameSize = sizeof(layoutName);
+        ++index;
+    }
+
+    return layouts;
+}
+
 // Clears keyboard buffer
 // Needed to avoid side effects on other calls to ToUnicode API
 // http://archives.miloush.net/michkap/archive/2007/10/27/5717859.html
 inline void ClearKeyboardBuffer(uint16_t vkCode)
 {
-    std::array<uint8_t, 256> keyboardState{};
     std::array<wchar_t, 10> chars{};
     const uint16_t scanCode = LOWORD(::MapVirtualKeyW(vkCode, MAPVK_VK_TO_VSC_EX));
     int count = 0;
     do
     {
-        count = ::ToUnicode(vkCode, scanCode, keyboardState.data(), chars.data(), static_cast<int>(chars.size()), 0);
+        count = ::ToUnicode(vkCode, scanCode, nullptr, chars.data(), static_cast<int>(chars.size()), 0);
     } while (count < 0);
 }
 
-// Returns UTF-8 string
-std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
+std::string GetStringFromKeyPress(uint16_t scanCode)
 {
-    std::array<uint8_t, 256> keyboardState{};
     std::array<wchar_t, 10> chars{};
     const uint16_t vkCode = LOWORD(::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+    std::array<uint8_t, 256> keyboardState{};
 
-    if (isShift)
-        keyboardState[VK_SHIFT] = 0x80;
+    // Turn on CapsLock to return capital letters
+    keyboardState[VK_CAPITAL] = 0b00000001;
 
     ClearKeyboardBuffer(VK_DECIMAL);
 
@@ -422,93 +448,57 @@ std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift)
     // Such layouts are listed here: https://kbdlayout.info/features/ligatures
     int count = ::ToUnicode(vkCode, scanCode, keyboardState.data(), chars.data(), static_cast<int>(chars.size()), 0);
 
-    // Negative value means that we have a `dead key`
-    if (count < 0)
-    {
-        if (chars[0] == L'\0' || std::iswcntrl(chars[0])) {
-            return {};
-        }
-
-        count = -count;
-    }
-
     ClearKeyboardBuffer(VK_DECIMAL);
 
-    // Do not return control characters
-    if (count <= 0 || (count == 1 && std::iswcntrl(chars[0]))) {
-        return {};
-    }
-
-    return utf8::narrow(chars.data(), count);
+    return utf8::narrow(chars.data(), std::abs(count));
 }
 
-// Get keyboard layout specific localized key name
 std::string GetScanCodeName(uint16_t scanCode)
 {
-    switch (scanCode)
+    static struct
     {
-        case 0xe010: // VK_MEDIA_PREV_TRACK
-            return "Previous Track";
-        case 0xe019: // VK_MEDIA_NEXT_TRACK
-            return "Next Track";
-        case 0xe020: // VK_VOLUME_MUTE
-            return "Volume Mute";
-        case 0xe021: // VK_LAUNCH_APP2
-            return "Launch App 2";
-        case 0xe022: // VK_MEDIA_PLAY_PAUSE
-            return "Media Play/Pause";
-        case 0xe024: // VK_MEDIA_STOP
-            return "Media Stop";
-        case 0xe02e: // VK_VOLUME_DOWN
-            return "Volume Down";
-        case 0xe030: // VK_VOLUME_UP
-            return "Volume Up";
-        case 0xe032: // VK_BROWSER_HOME
-            return "Browser Home";
-        case 0xe05e: // System Power (no VK code)
-            return "System Power";
-        case 0xe05f: // VK_SLEEP
-            return "System Sleep";
-        case 0xe063: // System Wake (no VK code)
-            return "System Wake";
-        case 0xe065: // VK_BROWSER_SEARCH
-            return "Browser Search";
-        case 0xe066: // VK_BROWSER_FAVORITES
-            return "Browser Favorites";
-        case 0xe067: // VK_BROWSER_REFRESH
-            return "Browser Refresh";
-        case 0xe068: // VK_BROWSER_STOP
-            return "Browser Stop";
-        case 0xe069: // VK_BROWSER_FORWARD
-            return "Browser Forward";
-        case 0xe06a: // VK_BROWSER_BACK
-            return "Browser Back";
-        case 0xe06b: // VK_LAUNCH_APP1
-            return "Launch App 1";
-        case 0xe06c: // VK_LAUNCH_MAIL
-            return "Launch Mail";
-        case 0xe06d: // VK_LAUNCH_MEDIA_SELECT
-            return "Launch Media Selector";
+        uint16_t scanCode;
+        const char* keyText;
+    } mediaKeys[] =
+    {
+        { 0xe010, "Previous Track"}, // VK_MEDIA_PREV_TRACK
+        { 0xe019, "Next Track"}, // VK_MEDIA_NEXT_TRACK
+        { 0xe020, "Volume Mute"}, // VK_VOLUME_MUTE
+        { 0xe021, "Launch App 2"}, // VK_LAUNCH_APP2
+        { 0xe022, "Media Play/Pause"}, // VK_MEDIA_PLAY_PAUSE
+        { 0xe024, "Media Stop"},// VK_MEDIA_STOP
+        { 0xe02e, "Volume Down"}, // VK_VOLUME_DOWN
+        { 0xe030, "Volume Up"}, // VK_VOLUME_UP
+        { 0xe032, "Browser Home"}, // VK_BROWSER_HOME
+        { 0xe05e, "System Power"}, // System Power (no VK code)
+        { 0xe05f, "System Sleep"}, // VK_SLEEP
+        { 0xe063, "System Wake"}, // System Wake (no VK code)
+        { 0xe065, "Browser Search"}, // VK_BROWSER_SEARCH
+        { 0xe066, "Browser Favorites"}, // VK_BROWSER_FAVORITES
+        { 0xe067, "Browser Refresh"}, // VK_BROWSER_REFRESH
+        { 0xe068, "Browser Stop"}, // VK_BROWSER_STOP
+        { 0xe069, "Browser Forward"}, // VK_BROWSER_FORWARD
+        { 0xe06a, "Browser Back"}, // VK_BROWSER_BACK
+        { 0xe06b, "Launch App 1"}, // VK_LAUNCH_APP1
+        { 0xe06c, "Launch Mail"}, // VK_LAUNCH_MAIL
+        { 0xe06d, "Launch Media Selector"} // VK_LAUNCH_MEDIA_SELECT
+    };
+
+    auto it = std::find_if(std::begin(mediaKeys), std::end(mediaKeys),
+        [scanCode](auto& key) { return key.scanCode == scanCode; });
+    if (it != std::end(mediaKeys))
+        return it->keyText;
+
+    std::string keyText = GetStringFromKeyPress(scanCode);
+    std::wstring keyTextWide = utf8::widen(keyText);
+    if (!keyTextWide.empty() && !std::iswblank(keyTextWide[0]) && !std::iswcntrl(keyTextWide[0]))
+    {
+        return keyText;
     }
 
     std::array<wchar_t, 128> buffer{};
-    int count = 0;
-
-    std::wstring keyText = utf8::widen(GetStrFromKeyPress(scanCode));
-    if (!keyText.empty() && !std::iswblank(keyText[0]))
-    {
-        // Convert to uppercase
-        count = ::LCMapStringEx(LOCALE_NAME_USER_DEFAULT,
-            LCMAP_UPPERCASE | LCMAP_LINGUISTIC_CASING,
-            keyText.c_str(), static_cast<int>(keyText.size()),
-            buffer.data(), static_cast<int>(buffer.size()),
-            nullptr, nullptr, 0);
-    }
-    else
-    {
-        const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));
-        count = ::GetKeyNameTextW(static_cast<LONG>(lParam), buffer.data(), static_cast<int>(buffer.size()));
-    }
+    const LPARAM lParam = MAKELPARAM(0, ((scanCode & 0xff00) ? KF_EXTENDED : 0) | (scanCode & 0xff));
+    int count = ::GetKeyNameTextW(static_cast<LONG>(lParam), buffer.data(), static_cast<int>(buffer.size()));
 
     return utf8::narrow(buffer.data(), count);
 }

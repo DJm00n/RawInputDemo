@@ -130,8 +130,12 @@ BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID);
 // It mimics GetLayoutDescription() from input.dll but lacks IME layout support
 std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID);
 
+// Returns installed keyboard layout names
+// https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
+std::vector<std::string> EnumInstalledKeyboardLayouts();
+
 // Returns UTF-8 string that will be printed on key press
-std::string GetStrFromKeyPress(uint16_t scanCode, bool isShift = false);
+std::string GetStringFromKeyPress(uint16_t scanCode);
 
 // Get keyboard layout specific localized key name
 std::string GetScanCodeName(uint16_t scanCode);

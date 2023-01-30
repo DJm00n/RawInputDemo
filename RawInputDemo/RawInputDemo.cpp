@@ -192,6 +192,13 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, UINT codePage, HKL hkl)
 
     UpdateKeyNames();
 
+    /*std::vector<std::string> layoutNames = EnumInstalledKeyboardLayouts();
+    for (auto& layoutName : layoutNames)
+    {
+        std::string layoutDisplayName = GetKeyboardLayoutDisplayName(utf8::widen(layoutName).c_str());
+        DBGPRINT("| %s | 0x%s |", layoutDisplayName.c_str(), layoutName.c_str());
+    }*/
+
     return TRUE;
 }
 
@@ -263,7 +270,7 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
         break;
     }
 
-    std::string ch = GetStrFromKeyPress(scanCode, ::GetAsyncKeyState(VK_SHIFT));
+    std::string ch = GetStringFromKeyPress(scanCode);
     std::string name = GetScanCodeName(scanCode);
 
     DBGPRINT("WM_KEYDOWN: vk=%s, sc=0x%04x, ch=`%s`, keyName=`%s`\n",
@@ -290,6 +297,23 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
     }
 }
 
+void WndProc_OnKeyup(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
+{
+    uint16_t scanCode = LOBYTE(flags);
+    if (scanCode != 0)
+    {
+        if ((flags & KF_EXTENDED) == KF_EXTENDED)
+            scanCode = MAKEWORD(scanCode, 0xE0);
+    }
+    else
+    {
+        // Windows may not report scan codes for some buttons (like multimedia buttons).
+        scanCode = LOWORD(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX));
+    }
+
+    int a = 666;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 /* BOOL Cls_OnWinIniChange(HWND hwnd, UINT codePage, HKL hkl) */
@@ -303,7 +327,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HANDLE_MSG(hWnd, WM_DESTROY, WndProc_OnDestroy);
         HANDLE_MSG(hWnd, WM_INPUTLANGCHANGE, WndProc_OnInputLangChange);
         HANDLE_MSG(hWnd, WM_CHAR, WndProc_OnChar);
-        HANDLE_MSG(hWnd, WM_KEYDOWN, WndProc_OnKeydown);
+        //HANDLE_MSG(hWnd, WM_KEYDOWN, WndProc_OnKeydown);
+        //HANDLE_MSG(hWnd, WM_KEYUP, WndProc_OnKeyup);
     default:
         return(DefWindowProc(hWnd, message, wParam, lParam));
     }
