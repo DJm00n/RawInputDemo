@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <cwctype>
 #pragma warning(pop)
 
 // UTF8<=>UTF16 conversion functions
@@ -55,6 +56,38 @@ namespace stringutils
     };
 
     typedef std::basic_string<char, ci_char_traits> ci_string;
+
+    struct ci_wchar_traits : public std::char_traits<wchar_t> {
+        static char to_upper(wchar_t ch) {
+            return (char)std::towupper(ch);
+        }
+        static bool eq(wchar_t c1, wchar_t c2) {
+            return to_upper(c1) == to_upper(c2);
+        }
+        static bool lt(wchar_t c1, wchar_t c2) {
+            return to_upper(c1) < to_upper(c2);
+        }
+        static int compare(const wchar_t* s1, const wchar_t* s2, std::size_t n) {
+            while (n-- != 0) {
+                if (to_upper(*s1) < to_upper(*s2)) return -1;
+                if (to_upper(*s1) > to_upper(*s2)) return 1;
+                ++s1; ++s2;
+            }
+            return 0;
+        }
+        static const wchar_t* find(const wchar_t* s, std::size_t n, wchar_t a) {
+            auto const ua(to_upper(a));
+            while (n-- != 0)
+            {
+                if (to_upper(*s) == ua)
+                    return s;
+                s++;
+            }
+            return nullptr;
+        }
+    };
+
+    typedef std::basic_string<wchar_t, ci_wchar_traits> ci_wstring;
 }
 
 inline bool IsValidHandle(void* handle)
@@ -115,20 +148,27 @@ std::wstring GetDefaultLayoutProfileId();
 bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* outProfile);
 std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId);
 
-std::string GetLocaleInformation(const std::wstring locale, LCTYPE LCType);
+std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType);
+
+// Returns IETF BCP 47 language tag from the HKL keyboard layout handle
+std::string GetBcp47FromHkl(HKL hkl);
 
 // Returns KLID string of size KL_NAMELENGTH
 // Same as GetKeyboardLayoutName but for any HKL
 // https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
 // https://github.com/dotnet/winforms/issues/4345#issuecomment-759161693
 // 
-BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID);
+std::string GetKlidFromHkl(HKL hkl);
 
 // Attempts to extract the localized keyboard layout name
 // as it appears in the Windows Regional Settings on the computer.
 // https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
 // It mimics GetLayoutDescription() from input.dll but lacks IME layout support
-std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID);
+std::string GetKeyboardLayoutDisplayName(const std::string& klid);
+
+// Returns "Language - Layout" string
+// Mimics GetLayoutProfileDescription API
+std::string GetLayoutDescription(HKL hkl);
 
 // Returns installed keyboard layout names
 // https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values

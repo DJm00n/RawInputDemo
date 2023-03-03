@@ -133,7 +133,7 @@ std::string GetUNameWrapper(char32_t codePoint)
         return {};
 
     const WORD character = static_cast<WORD>(codePoint);
-    std::array<WCHAR, 256> buffer;
+    std::array<wchar_t, 256> buffer;
     int length = pfnGetUName(character, buffer.data());
 
     return utf8::narrow(buffer.data(), length);
@@ -203,12 +203,8 @@ std::string GetUnicodeCharacterNames(std::string string)
 
 std::wstring GetLayoutProfileId(HKL hkl)
 {
-    LANGID lang = LOWORD(hkl);
-    WCHAR szKLID[KL_NAMELENGTH];
-    CHECK(::GetKLIDFromHKL(hkl, szKLID));
-
-    WCHAR layoutProfile[MAX_PATH];
-    std::swprintf(layoutProfile, MAX_PATH, L"%04x:%s", lang, szKLID);
+    wchar_t layoutProfile[MAX_PATH];
+    std::swprintf(layoutProfile, MAX_PATH, L"%04x:%hs", LOWORD(hkl), GetKlidFromHkl(hkl).c_str());
 
     return layoutProfile;
 }
@@ -260,7 +256,7 @@ bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* o
     std::vector<LAYOUTORTIPPROFILE> layouts = EnumLayoutProfiles();
     for (const auto& layout : layouts)
     {
-        if (layoutProfileId != layout.szId)
+        if (stringutils::ci_wstring(layout.szId).compare(layoutProfileId.c_str()) != 0)
             continue;
 
         CHECK(layout.dwProfileType & LOTP_KEYBOARDLAYOUT);
@@ -294,98 +290,147 @@ std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId)
     return utf8::narrow(description);
 }
 
-std::string GetLocaleInformation(const std::wstring locale, LCTYPE LCType)
+std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType)
 {
-    int len = ::GetLocaleInfoEx(locale.c_str(), LCType, nullptr, 0);
+    std::wstring tmp = utf8::widen(locale);
+
+    int len = ::GetLocaleInfoEx(tmp.c_str(), LCType, nullptr, 0);
     CHECK_GE(len, 1);
 
     std::unique_ptr<wchar_t[]> buffer(new wchar_t[len]);
-    ::GetLocaleInfoEx(locale.c_str(), LCType, buffer.get(), len);
+    ::GetLocaleInfoEx(tmp.c_str(), LCType, buffer.get(), len);
 
     return utf8::narrow(buffer.get());
 }
 
-BOOL GetKLIDFromHKL(HKL hkl, _Out_writes_(KL_NAMELENGTH) LPWSTR pwszKLID)
+std::string GetBcp47FromHkl(HKL hkl)
 {
-    /*  HKL is a 32 bit value. HIWORD is a Device Handle. LOWORD is Language ID.
-        +-------------- +-------------+
-        | Device Handle | Language ID |
-        +---------------+-------------+
-        31            16 15           0 bit
-        http://archives.miloush.net/michkap/archive/2005/04/17/409032.html
-    */
+    // According to the GetKeyboardLayout API function docs low word of HKL contains input language
+    // identifier.
+    LANGID langId = LOWORD(hkl);
+    wchar_t language[LOCALE_NAME_MAX_LENGTH] = { 0 };
 
-    bool succeded = false;
-
-    if ((HIWORD(hkl) & 0xf000) == 0xf000) // `Device Handle` contains `Layout ID`
+    // We need to convert the language identifier to a language tag as soon as
+    // possible, because they are obsolete and may have a transient value - 0x2000,
+    // 0x2400, 0x2800, 0x2C00.
+    // https://learn.microsoft.com/globalization/locale/locale-names#the-deprecation-of-lcids
+    //
+    // It turns out that the LCIDToLocaleName API may return incorrect language tags
+    // for transient language identifiers. For example, it returns "nqo-GN" and
+    // "jv-Java-ID" instead of the "nqo" and "jv-Java" (as seen in the
+    // Get-WinUserLanguageList PowerShell cmdlet). Try to extract proper language tag
+    // from registry.
+    if (langId == LOCALE_TRANSIENT_KEYBOARD1 ||
+        langId == LOCALE_TRANSIENT_KEYBOARD2 ||
+        langId == LOCALE_TRANSIENT_KEYBOARD3 ||
+        langId == LOCALE_TRANSIENT_KEYBOARD4)
     {
-        WORD layoutId = HIWORD(hkl) & 0x0fff;
+        HKEY key;
+        CHECK_EQ(::RegOpenKeyW(HKEY_CURRENT_USER, L"Control Panel\\International\\User Profile", &key), ERROR_SUCCESS);
+
+        DWORD bytes = 0;
+        CHECK_EQ(::RegGetValueW(key, nullptr, L"Languages", RRF_RT_REG_MULTI_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
+
+        std::unique_ptr<wchar_t[]> installedLanguages(new wchar_t[bytes / sizeof(wchar_t)]);
+        CHECK_EQ(::RegGetValueW(key, nullptr, L"Languages", RRF_RT_REG_MULTI_SZ, nullptr, installedLanguages.get(), &bytes), ERROR_SUCCESS);
+
+        for (wchar_t* installedLanguage = installedLanguages.get(); *installedLanguage; installedLanguage += wcslen(installedLanguage) + 1)
+        {
+            DWORD transientLangId = 0;
+            bytes = sizeof(transientLangId);
+            if (::RegGetValueW(key, installedLanguage, L"TransientLangId", RRF_RT_REG_DWORD, nullptr, &transientLangId, &bytes) == ERROR_SUCCESS)
+            {
+                if (langId == transientLangId)
+                {
+                    wcscpy(language, installedLanguage);
+                    break;
+                }
+            }
+        }
+
+        CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
+    }
+
+    if (wcslen(language) == 0)
+    {
+        CHECK(::LCIDToLocaleName(langId, language, (int)std::size(language), 0));
+    }
+
+    return utf8::narrow(language);
+}
+
+std::string GetKlidFromHkl(HKL hkl)
+{
+    wchar_t klid[KL_NAMELENGTH] = { 0 };
+
+    WORD device = HIWORD(hkl);
+
+    if ((device & 0xf000) == 0xf000) // `Device Handle` contains `Layout ID`
+    {
+        WORD layoutId = device & 0x0fff;
 
         HKEY key;
         CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
 
         DWORD index = 0;
-        while (::RegEnumKeyW(key, index, pwszKLID, KL_NAMELENGTH) == ERROR_SUCCESS)
+        wchar_t buffer[KL_NAMELENGTH];
+        DWORD len = (DWORD)std::size(buffer);
+        while (::RegEnumKeyExW(key, index, buffer, &len, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
         {
-            WCHAR layoutIdBuffer[MAX_PATH] = {};
+            wchar_t layoutIdBuffer[MAX_PATH] = {};
             DWORD layoutIdBufferSize = sizeof(layoutIdBuffer);
-            if (::RegGetValueW(key, pwszKLID, L"Layout Id", RRF_RT_REG_SZ, nullptr, layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
+            if (::RegGetValueW(key, buffer, L"Layout Id", RRF_RT_REG_SZ, nullptr, layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
             {
                 if (layoutId == std::stoul(layoutIdBuffer, nullptr, 16))
                 {
-                    succeded = true;
-                    //DBGPRINT("Found KLID 0x%ls by layoutId=0x%04x", pwszKLID, layoutId);
+                    _wcsupr(buffer);
+                    wcscpy(klid, buffer);
+                    //DBGPRINT("Found KLID %ls by layoutId=0x%04x", klid, layoutId);
                     break;
                 }
             }
+            len = (DWORD)std::size(buffer);
             ++index;
         }
+
         CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
     }
     else
     {
-        WORD langId = LOWORD(hkl);
+        // Use input language only if keyboard layout language is not available. This
+        // is crucial in cases when keyboard is installed more than once or under
+        // different languages. For example when French keyboard is installed under US
+        // input language we need to return French keyboard identifier.
+        if (device == 0)
+        {
+            device = LOWORD(hkl);
+        }
 
-        // `Device Handle` contains `Language ID` of keyboard layout if set
-        if (HIWORD(hkl) != 0)
-            langId = HIWORD(hkl);
-
-        std::swprintf(pwszKLID, KL_NAMELENGTH, L"%08X", langId);
-        succeded = true;
-
-        //DBGPRINT("Found KLID 0x%ls by langId=0x%04x", pwszKLID, langId);
+        std::swprintf(klid, std::size(klid), L"%08X", device);
+        //DBGPRINT("Found KLID %ls by langId=0x%04x", klid, device);
     }
 
-    return succeded;
+    return utf8::narrow(klid);
 }
 
-std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID)
+std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 {
     // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
     // https://github.com/dotnet/winforms/issues/4345
 
-    typedef HRESULT(WINAPI* SHLoadIndirectStringFunc)(PCWSTR pszSource, PWSTR pszOutBuf, UINT cchOutBuf,void** ppvReserved);
-    static SHLoadIndirectStringFunc SHLoadIndirectString = reinterpret_cast<SHLoadIndirectStringFunc>(::GetProcAddress(::LoadLibraryA("shlwapi.dll"), "SHLoadIndirectString"));
-
-    if (!SHLoadIndirectString)
-        return {};
+    wchar_t regPath[MAX_PATH] = { 0 };
+    std::swprintf(regPath, std::size(regPath), L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts\\%hs", klid.c_str());
 
     HKEY key;
-    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
+    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, regPath, &key), ERROR_SUCCESS);
 
-    WCHAR layoutName[MAX_PATH] = {};
-    DWORD layoutNameSize = sizeof(layoutName);
-
-    LSTATUS errorCode = ::RegGetValueW(key, pwszKLID, L"Layout Display Name", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize);
-    if (errorCode == ERROR_SUCCESS && SHLoadIndirectString)
-    {
-        // Convert string like "@%SystemRoot%\system32\input.dll,-5000" to localized "US" string
-        CHECK_EQ(SHLoadIndirectString(layoutName, layoutName, MAX_PATH, nullptr), S_OK);
-    }
-    else
+    // Convert string like "@%SystemRoot%\system32\input.dll,-5000" to localized "US" string
+    wchar_t layoutName[MAX_PATH] = {};
+    if (RegLoadMUIStringW(key, L"Layout Display Name", layoutName, (DWORD)std::size(layoutName), nullptr, REG_MUI_STRING_TRUNCATE, nullptr) != ERROR_SUCCESS)
     {
         // Fallback to unlocalized layout name
-        CHECK_EQ(::RegGetValueW(key, pwszKLID, L"Layout Text", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize), ERROR_SUCCESS);
+        DWORD layoutNameSize = sizeof(layoutName);
+        CHECK_EQ(::RegGetValueW(key, nullptr, L"Layout Text", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize), ERROR_SUCCESS);
     }
 
     if (wcslen(layoutName) == 0)
@@ -398,6 +443,17 @@ std::string GetKeyboardLayoutDisplayName(_In_ LPCWSTR pwszKLID)
     return utf8::narrow(layoutName);
 }
 
+std::string GetLayoutDescription(HKL hkl)
+{
+    std::string locale = GetBcp47FromHkl(hkl);
+    std::string layoutId = GetKlidFromHkl(hkl);
+
+    std::string layoutLang = GetLocaleInformation(locale, LOCALE_SENGLISHDISPLAYNAME);
+    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+
+    return layoutLang + " - " + layoutDisplayName;
+}
+
 std::vector<std::string> EnumInstalledKeyboardLayouts()
 {
     std::vector<std::string> layouts;
@@ -406,13 +462,13 @@ std::vector<std::string> EnumInstalledKeyboardLayouts()
     CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
 
     DWORD index = 0;
-    WCHAR layoutName[MAX_PATH] = {};
-    DWORD layoutNameSize = sizeof(layoutName);
+    wchar_t layoutName[MAX_PATH] = {};
+    DWORD layoutNameSize = (DWORD)std::size(layoutName);
 
     while (::RegEnumKeyExW(key, index, layoutName, &layoutNameSize, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
     {
         layouts.emplace_back(utf8::narrow(layoutName));
-        layoutNameSize = sizeof(layoutName);
+        layoutNameSize = (DWORD)std::size(layoutName);
         ++index;
     }
 

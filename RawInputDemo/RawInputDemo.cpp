@@ -160,26 +160,11 @@ void WndProc_OnDestroy(HWND /*hWnd*/)
     PostQuitMessage(0);
 }
 
-BOOL WndProc_OnInputLangChange(HWND hwnd, UINT codePage, HKL hkl)
+BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 {
     DBGPRINT("WM_INPUTLANGCHANGE: hkl=0x%08x", hkl);
 
-    LCID locale = MAKELCID(LOWORD(hkl), SORT_DEFAULT);
-    wchar_t hklLanguage[LOCALE_NAME_MAX_LENGTH] = { 0 };
-    CHECK(::LCIDToLocaleName(locale, hklLanguage, LOCALE_NAME_MAX_LENGTH, LOCALE_ALLOW_NEUTRAL_NAMES));
-
-    wchar_t keyboardLayoutId[KL_NAMELENGTH];
-    CHECK(GetKLIDFromHKL(hkl, keyboardLayoutId));
-
-    wchar_t keyboardLayoutId2[KL_NAMELENGTH];
-    CHECK(::GetKeyboardLayoutNameW(keyboardLayoutId2));
-
-    // Check that my GetKLIDFromHKL is working
-    CHECK_EQ(std::stoul(keyboardLayoutId, nullptr, 16), std::stoul(keyboardLayoutId2, nullptr, 16));
-
-    std::string layoutLang = GetLocaleInformation(hklLanguage, LOCALE_SLOCALIZEDDISPLAYNAME);
-    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(keyboardLayoutId);
-    std::string layoutDescription = layoutLang + " - " + layoutDisplayName;
+    std::string layoutDescription = GetLayoutDescription(hkl);
 
     std::wstring layoutProfileId = GetLayoutProfileId(hkl);
     LAYOUTORTIPPROFILE layoutProfile;
@@ -316,9 +301,9 @@ void WndProc_OnKeyup(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-/* BOOL Cls_OnWinIniChange(HWND hwnd, UINT codePage, HKL hkl) */
+/* BOOL Cls_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl) */
 #define HANDLE_WM_INPUTLANGCHANGE(hwnd, wParam, lParam, fn) \
-    MAKELRESULT((BOOL)(fn)((hwnd), (UINT)(wParam), (HKL)(lParam)), 0L)
+    MAKELRESULT((BOOL)(fn)((hwnd), (USHORT)(wParam), (HKL)(lParam)), 0L)
 
     switch (message)
     {
