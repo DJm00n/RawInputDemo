@@ -6,8 +6,6 @@
 
 #include <cwctype>
 #include <codecvt>
-#include <kbd.h>
-#include <shlwapi.h>
 
 using namespace std;
 
@@ -127,7 +125,7 @@ std::string GetUNameWrapper(char32_t codePoint)
 
     // https://github.com/reactos/reactos/tree/master/dll/win32/getuname
     typedef int(WINAPI* GetUNameFunc)(WORD wCharCode, LPWSTR lpBuf);
-    static GetUNameFunc pfnGetUName = reinterpret_cast<GetUNameFunc>(::GetProcAddress(::LoadLibraryA("getuname.dll"), "GetUName"));
+    static GetUNameFunc pfnGetUName = reinterpret_cast<GetUNameFunc>(::GetProcAddress(::LoadLibraryW(L"getuname.dll"), "GetUName"));
 
     if (!pfnGetUName)
         return {};
@@ -145,10 +143,10 @@ std::string GetUCharNameWrapper(char32_t codePoint)
 {
     // https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uchar_8h.html#a2d90141097af5ad4b6c37189e7984932
     typedef int32_t(*u_charNameFunc)(char32_t code, int nameChoice, char* buffer, int32_t bufferLength, int* pErrorCode);
-    static u_charNameFunc pfnU_charName = reinterpret_cast<u_charNameFunc>(::GetProcAddress(::LoadLibraryA("icuuc.dll"), "u_charName"));
+    static u_charNameFunc pfnU_charName = reinterpret_cast<u_charNameFunc>(::GetProcAddress(::LoadLibraryW(L"icuuc.dll"), "u_charName"));
 
     if (!pfnU_charName)
-        return {};
+        return GetUNameWrapper(codePoint);
 
     int errorCode = 0;
     std::array<char, 512> buffer;
@@ -214,7 +212,7 @@ std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles()
     // http://archives.miloush.net/michkap/archive/2008/09/29/8968315.html
     // https://docs.microsoft.com/en-us/windows/win32/tsf/enumenabledlayoutortip
     typedef UINT(WINAPI* EnumEnabledLayoutOrTipFunc)(LPCWSTR pszUserReg, LPCWSTR pszSystemReg, LPCWSTR pszSoftwareReg, LAYOUTORTIPPROFILE* pLayoutOrTipProfile, UINT uBufLength);
-    static EnumEnabledLayoutOrTipFunc EnumEnabledLayoutOrTip = reinterpret_cast<EnumEnabledLayoutOrTipFunc>(::GetProcAddress(::LoadLibraryA("input.dll"), "EnumEnabledLayoutOrTip"));
+    static EnumEnabledLayoutOrTipFunc EnumEnabledLayoutOrTip = reinterpret_cast<EnumEnabledLayoutOrTipFunc>(::GetProcAddress(::LoadLibraryW(L"input.dll"), "EnumEnabledLayoutOrTip"));
 
     if (!EnumEnabledLayoutOrTip)
         return {};
@@ -234,7 +232,7 @@ std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles()
 std::wstring GetDefaultLayoutProfileId()
 {
     typedef HRESULT(WINAPI* GetDefaultLayoutFunc)(LPCWSTR pszUserReg, LPWSTR pszLayout, LPUINT uBufLength);
-    static GetDefaultLayoutFunc GetDefaultLayout = reinterpret_cast<GetDefaultLayoutFunc>(::GetProcAddress(::LoadLibraryA("input.dll"), "GetDefaultLayout"));
+    static GetDefaultLayoutFunc GetDefaultLayout = reinterpret_cast<GetDefaultLayoutFunc>(::GetProcAddress(::LoadLibraryW(L"input.dll"), "GetDefaultLayout"));
 
     if (!GetDefaultLayout)
         return {};
@@ -273,7 +271,7 @@ std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId)
 {
     // http://archives.miloush.net/michkap/archive/2008/09/29/8968315.html
     typedef HRESULT(WINAPI* GetLayoutDescriptionFunc)(LPCWSTR szId, LPWSTR pszName, LPUINT uBufLength, DWORD dwFlags);
-    static GetLayoutDescriptionFunc GetLayoutDescription = reinterpret_cast<GetLayoutDescriptionFunc>(::GetProcAddress(::LoadLibraryA("input.dll"), "GetLayoutDescription"));
+    static GetLayoutDescriptionFunc GetLayoutDescription = reinterpret_cast<GetLayoutDescriptionFunc>(::GetProcAddress(::LoadLibraryW(L"input.dll"), "GetLayoutDescription"));
 
     if (!GetLayoutDescription)
         return {};
@@ -415,32 +413,40 @@ std::string GetKlidFromHkl(HKL hkl)
 
 std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 {
+    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts\\";
+    constexpr wchar_t keyboardLayoutDisplayName[] = L"Layout Display Name";
+    constexpr wchar_t keyboardLayoutText[] = L"Layout Text";
+
     // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
-    // https://github.com/dotnet/winforms/issues/4345
-
-    wchar_t regPath[MAX_PATH] = { 0 };
-    std::swprintf(regPath, std::size(regPath), L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts\\%hs", klid.c_str());
-
+    // https://learn.microsoft.com/windows/win32/intl/using-registry-string-redirection#create-resources-for-keyboard-layout-strings
     HKEY key;
-    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, regPath, &key), ERROR_SUCCESS);
+    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, std::wstring(keyboardLayoutsRegPath).append(utf8::widen(klid)).c_str(), &key), ERROR_SUCCESS);
 
-    // Convert string like "@%SystemRoot%\system32\input.dll,-5000" to localized "US" string
-    wchar_t layoutName[MAX_PATH] = {};
-    if (RegLoadMUIStringW(key, L"Layout Display Name", layoutName, (DWORD)std::size(layoutName), nullptr, REG_MUI_STRING_TRUNCATE, nullptr) != ERROR_SUCCESS)
+    // https://learn.microsoft.com/windows/win32/intl/locating-redirected-strings#load-a-language-neutral-registry-value
+    std::unique_ptr<wchar_t[]> buffer;
+    DWORD bytes = 0;
+    if (::RegLoadMUIStringW(key, keyboardLayoutDisplayName, nullptr, 0, &bytes, 0, nullptr) == ERROR_MORE_DATA)
     {
-        // Fallback to unlocalized layout name
-        DWORD layoutNameSize = sizeof(layoutName);
-        CHECK_EQ(::RegGetValueW(key, nullptr, L"Layout Text", RRF_RT_REG_SZ, nullptr, layoutName, &layoutNameSize), ERROR_SUCCESS);
+        buffer.reset(new wchar_t[bytes / sizeof(wchar_t)]);
+        CHECK_EQ(::RegLoadMUIStringW(key, keyboardLayoutDisplayName, buffer.get(), bytes, &bytes, 0, nullptr), ERROR_SUCCESS);
     }
 
-    if (wcslen(layoutName) == 0)
+    // Fallback to unlocalized layout name
+    if (buffer.get() == nullptr)
     {
-        wcscpy(layoutName, L"Unknown layout");
+        CHECK_EQ(::RegGetValueW(key, nullptr, keyboardLayoutText, RRF_RT_REG_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
+        buffer.reset(new wchar_t[bytes / sizeof(wchar_t)]);
+        CHECK_EQ(::RegGetValueW(key, nullptr, keyboardLayoutText, RRF_RT_REG_SZ, nullptr, buffer.get(), &bytes), ERROR_SUCCESS);
+    }
+
+    if (buffer.get() == nullptr)
+    {
+        buffer.reset(new wchar_t[](L"Unknown layout"));
     }
 
     CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
 
-    return utf8::narrow(layoutName);
+    return utf8::narrow(buffer.get());
 }
 
 std::string GetLayoutDescription(HKL hkl)
@@ -448,7 +454,7 @@ std::string GetLayoutDescription(HKL hkl)
     std::string locale = GetBcp47FromHkl(hkl);
     std::string layoutId = GetKlidFromHkl(hkl);
 
-    std::string layoutLang = GetLocaleInformation(locale, LOCALE_SENGLISHDISPLAYNAME);
+    std::string layoutLang = GetLocaleInformation(locale, LOCALE_SLOCALIZEDDISPLAYNAME);
     std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
 
     return layoutLang + " - " + layoutDisplayName;
