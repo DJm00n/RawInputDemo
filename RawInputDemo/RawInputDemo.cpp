@@ -119,12 +119,11 @@ std::map<uint16_t, std::wstring> keyNames;
 void UpdateKeyNames()
 {
     keyNames.clear();
-    for (UINT vk = 0; vk < 0xff; ++vk)
-    {
-        UINT scanCode = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
-        if (scanCode == 0x00)
-            continue;
 
+    auto scanCodes = GetMappedScanCodes();
+
+    for (const uint16_t& scanCode : scanCodes)
+    {
         std::string keyName = GetScanCodeName(scanCode);
         if (keyName.empty())
             continue;
@@ -256,30 +255,12 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
     }
 
     std::string ch = GetStringFromKeyPress(scanCode);
-    std::string name = GetScanCodeName(scanCode);
+    std::string name = keyNames.count(scanCode) ? utf8::narrow(keyNames.at(scanCode)) : "";
 
     DBGPRINT("WM_KEYDOWN: vk=%s, sc=0x%04x, ch=`%s`, keyName=`%s`\n",
         VkToString(vk).c_str(),
         scanCode,
         GetUnicodeCharacterNames(ch).c_str(), name.c_str());
-
-    for (auto& key : keyNames)
-    {
-        UINT vk = MapVirtualKeyW(key.first, MAPVK_VSC_TO_VK_EX);
-        UINT scanCode = key.first;//MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX);
-        std::string keyName = keyNames.count(scanCode) ? utf8::narrow(keyNames.at(scanCode)) : "";
-
-        wchar_t wch = MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR);
-        std::string ch(utf8::narrow(&wch, 1));
-
-        if (scanCode != 0 && !ch.empty()/* && vk != vk2*/)
-        {
-            DBGPRINT("vk=%s, sc=0x%04x, keyName=`%s`, ch=`%s`\n",
-                VkToString(vk).c_str(),
-                scanCode, keyName.c_str(),
-                GetUnicodeCharacterNames(ch).c_str());
-        }
-    }
 }
 
 void WndProc_OnKeyup(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
@@ -312,7 +293,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HANDLE_MSG(hWnd, WM_DESTROY, WndProc_OnDestroy);
         HANDLE_MSG(hWnd, WM_INPUTLANGCHANGE, WndProc_OnInputLangChange);
         HANDLE_MSG(hWnd, WM_CHAR, WndProc_OnChar);
-        //HANDLE_MSG(hWnd, WM_KEYDOWN, WndProc_OnKeydown);
+        HANDLE_MSG(hWnd, WM_KEYDOWN, WndProc_OnKeydown);
         //HANDLE_MSG(hWnd, WM_KEYUP, WndProc_OnKeyup);
     default:
         return(DefWindowProc(hWnd, message, wParam, lParam));

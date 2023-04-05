@@ -180,6 +180,9 @@ std::string GetStringFromKeyPress(uint16_t scanCode);
 // Get keyboard layout specific localized key name
 std::string GetScanCodeName(uint16_t scanCode);
 
+// Get the list of scan codes that are mapped to HID usages
+std::vector<uint16_t> GetMappedScanCodes();
+
 std::string VkToString(uint16_t vk);
 
 //#ifdef _DEBUG

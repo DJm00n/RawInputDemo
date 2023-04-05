@@ -6,6 +6,10 @@
 
 #include <cwctype>
 #include <codecvt>
+#include <set>
+
+#include <hidsdi.h>
+#include <hidpi.h>
 
 using namespace std;
 
@@ -513,6 +517,53 @@ std::string GetStringFromKeyPress(uint16_t scanCode)
     ClearKeyboardBuffer(VK_DECIMAL);
 
     return utf8::narrow(chars.data(), std::abs(count));
+}
+
+std::vector<uint16_t> GetMappedScanCodes()
+{
+    std::set<uint16_t> scanCodes;
+
+    PHIDP_INSERT_SCANCODES insertFunc =
+        [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
+    {
+        auto scanCodes = reinterpret_cast<std::set<uint16_t>*>(context);
+
+        CHECK_LE(length, 3);
+
+        uint16_t scanCode = 0;
+        switch (length)
+        {
+        case 1:
+            scanCode = MAKEWORD(newScanCodes[0], 0);
+            break;
+        case 2:
+            scanCode = MAKEWORD(newScanCodes[1], newScanCodes[0]);
+            break;
+        case 3:
+            // The only known case is 0xe11d45 for NumLock. Map it to 0xe045 as Win32 does.
+            scanCode = MAKEWORD(newScanCodes[2], 0xe0);
+            break;
+        }
+
+        scanCodes->insert(scanCode);
+
+        return TRUE;
+    };
+
+    // Translate usages from HID_USAGE_PAGE_KEYBOARD page
+    for (USAGE usage = 0; usage <= 0xFF; ++usage)
+    {
+        HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
+        HidP_TranslateUsagesToI8042ScanCodes(&usage, 1, HidP_Keyboard_Make, &modifiers, insertFunc, reinterpret_cast<PVOID>(&scanCodes));
+    }
+
+    std::vector<uint16_t> ret;
+    for (uint16_t scanCode : scanCodes)
+    {
+        ret.emplace_back(scanCode);
+    }
+
+    return ret;
 }
 
 std::string GetScanCodeName(uint16_t scanCode)
