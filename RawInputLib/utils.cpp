@@ -618,8 +618,31 @@ std::string GetScanCodeName(uint16_t scanCode)
     {
         uint16_t scanCode;
         const char* keyText;
-    } mediaKeys[] =
+    } missingKeys[] =
     {
+        { 0x0064, "F13"}, // VK_F13
+        { 0x0065, "F14"}, // VK_F14
+        { 0x0066, "F15"}, // VK_F15
+        { 0x0067, "F16"}, // VK_F16
+        { 0x0068, "F17"}, // VK_F17
+        { 0x0069, "F18"}, // VK_F18
+        { 0x006a, "F19"}, // VK_F19
+        { 0x006b, "F20"}, // VK_F20
+        { 0x006c, "F21"}, // VK_F21
+        { 0x006d, "F22"}, // VK_F22
+        { 0x006e, "F23"}, // VK_F23
+        { 0x0076, "F24"}, // VK_F24
+        { 0x007d, ""},
+        { 0x007e, ""},
+        { 0x007f, ""},
+        { 0x0080, ""},
+        { 0x0081, ""},
+        { 0x0082, ""},
+        { 0x0083, ""},
+        { 0x0084, ""},
+        { 0x0085, ""},
+        { 0x0086, ""},
+        { 0x0087, ""},
         { 0xe010, "Previous Track"}, // VK_MEDIA_PREV_TRACK
         { 0xe019, "Next Track"}, // VK_MEDIA_NEXT_TRACK
         { 0xe020, "Volume Mute"}, // VK_VOLUME_MUTE
@@ -643,9 +666,9 @@ std::string GetScanCodeName(uint16_t scanCode)
         { 0xe06d, "Launch Media Selector"} // VK_LAUNCH_MEDIA_SELECT
     };
 
-    auto it = std::find_if(std::begin(mediaKeys), std::end(mediaKeys),
+    auto it = std::find_if(std::begin(missingKeys), std::end(missingKeys),
         [scanCode](auto& key) { return key.scanCode == scanCode; });
-    if (it != std::end(mediaKeys))
+    if (it != std::end(missingKeys))
         return it->keyText;
 
     std::string keyText = GetStringFromKeyPress(scanCode);
