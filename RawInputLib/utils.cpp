@@ -556,8 +556,8 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
         return TRUE;
     };
 
-    // Translate usages from HID_USAGE_PAGE_KEYBOARD page
-    for (USAGE usage = 0; usage <= 0xff; ++usage)
+    // Translate declared usages from HID_USAGE_PAGE_KEYBOARD page
+    for (USAGE usage = 0x00; usage <= 0xe7; ++usage)
     {
         HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
 
@@ -579,41 +579,44 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
         }
     }
 
-    // Additional scan codes that are mapped to HID_USAGE_PAGE_CONSUMER page
+    // Additional mapped scan codes that.
     // Looks like HidP_TranslateUsageAndPagesToI8042ScanCodes cannot be called from user-mode
     // So just add known buttons to the list:
     static struct
     {
         uint32_t usage;
         uint16_t scanCode;
-    } consumer[] =
+    } additionalMappings[] =
     {
-        { 0x00b5, 0xe019 }, // Scan Next Track
-        { 0x00b6, 0xe010 }, // Scan Previous Track
-        { 0x00b7, 0xe024 }, // Stop
-        { 0x00cd, 0xe022 }, // Play/Pause
-        { 0x00e2, 0xe020 }, // Mute
-        { 0x00e9, 0xe030 }, // Volume Increment
-        { 0x00ea, 0xe02e }, // Volume Decrement
-        { 0x0183, 0xe06d }, // AL Consumer Control Configuration
-        { 0x018a, 0xe06c }, // AL Email Reader
-        { 0x0192, 0xe021 }, // AL Calculator
-        { 0x0194, 0xe06b }, // AL Local Machine Browser
-        { 0x0221, 0xe065 }, // AC Search
-        { 0x0223, 0xe032 }, // AC Home
-        { 0x0225, 0xe069 }, // AC Back
-        { 0x0226, 0xe068 }, // AC Forward
-        { 0x0227, 0xe067 }, // AC Stop
-        { 0x022a, 0xe066 }, // AC Refresh
-        { 0x022a, 0xe06a }, // AC Previous Link
+        { HID_USAGE_PAGE_GENERIC << 16 | 0x0081, 0xe05e }, // System Power Down
+        { HID_USAGE_PAGE_GENERIC << 16 | 0x0082, 0xe05f }, // System Sleep
+        { HID_USAGE_PAGE_GENERIC << 16 | 0x0083, 0xe063 }, // System Wake Up
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b6, 0xe010 }, // Scan Previous Track
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b7, 0xe024 }, // Stop
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00cd, 0xe022 }, // Play/Pause
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00e2, 0xe020 }, // Mute
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00e9, 0xe030 }, // Volume Increment
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00ea, 0xe02e }, // Volume Decrement
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0183, 0xe06d }, // AL Consumer Control Configuration
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x018a, 0xe06c }, // AL Email Reader
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0192, 0xe021 }, // AL Calculator
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0194, 0xe06b }, // AL Local Machine Browser
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0221, 0xe065 }, // AC Search
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0223, 0xe032 }, // AC Home
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0225, 0xe069 }, // AC Back
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0226, 0xe068 }, // AC Forward
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0227, 0xe067 }, // AC Stop
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe066 }, // AC Refresh
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe06a }, // AC Previous Link
     };
 
-    for (const auto& p : consumer)
+    for (const auto& mapping : additionalMappings)
     {
-        usagesToScanCodes.emplace_back(std::make_pair(HID_USAGE_PAGE_CONSUMER << 16 | p.usage, p.scanCode));
+        usagesToScanCodes.emplace_back(std::make_pair(mapping.usage, mapping.scanCode));
     }
-
-
 
     return usagesToScanCodes;
 }
