@@ -120,13 +120,22 @@ void UpdateKeyNames()
 {
     keyNames.clear();
 
-    auto scanCodes = GetMappedScanCodes();
+    auto usagesToScanCodes = GetUsagesToScanCodes();
 
-    for (const uint16_t& scanCode : scanCodes)
+    for (const auto& usageToScanCode : usagesToScanCodes)
     {
+        const uint16_t scanCode = usageToScanCode.second;
+
+        if (scanCode == 0)
+        {
+            continue;
+        }
+
         std::string keyName = GetScanCodeName(scanCode);
         if (keyName.empty())
+        {
             continue;
+        }
 
         keyNames.insert_or_assign(scanCode, utf8::widen(keyName));
     }

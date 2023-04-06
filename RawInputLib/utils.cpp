@@ -519,14 +519,14 @@ std::string GetStringFromKeyPress(uint16_t scanCode)
     return utf8::narrow(chars.data(), std::abs(count));
 }
 
-std::vector<uint16_t> GetMappedScanCodes()
+std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
 {
-    std::set<uint16_t> scanCodes;
+    std::vector<std::pair<uint32_t, uint16_t>> usagesToScanCodes;
 
     PHIDP_INSERT_SCANCODES insertFunc =
         [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
     {
-        auto scanCodes = reinterpret_cast<std::set<uint16_t>*>(context);
+        auto usagesToScanCodes = reinterpret_cast<std::vector<std::pair<uint32_t, uint16_t>>*>(context);
 
         CHECK_LE(length, 3);
 
@@ -534,36 +534,82 @@ std::vector<uint16_t> GetMappedScanCodes()
         switch (length)
         {
         case 1:
-            scanCode = MAKEWORD(newScanCodes[0], 0);
+            scanCode = MAKEWORD(newScanCodes[0] & 0x7f, 0);
             break;
         case 2:
             scanCode = MAKEWORD(newScanCodes[1], newScanCodes[0]);
             break;
         case 3:
-            // The only known case is 0xe11d45 for NumLock. Map it to 0xe045 as Win32 does.
+            // The only known case is 0xe11d45 for Pause key. Map it to 0xe045 as Win32 does.
             scanCode = MAKEWORD(newScanCodes[2], 0xe0);
             break;
         }
 
-        scanCodes->insert(scanCode);
+        usagesToScanCodes->back().second = scanCode;
 
         return TRUE;
     };
 
     // Translate usages from HID_USAGE_PAGE_KEYBOARD page
-    for (USAGE usage = 0; usage <= 0xFF; ++usage)
+    for (USAGE usage = 0; usage <= 0xff; ++usage)
     {
         HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
-        HidP_TranslateUsagesToI8042ScanCodes(&usage, 1, HidP_Keyboard_Make, &modifiers, insertFunc, reinterpret_cast<PVOID>(&scanCodes));
+
+        usagesToScanCodes.emplace_back(std::make_pair<uint32_t, uint16_t>(HID_USAGE_PAGE_KEYBOARD << 16 | usage, 0));
+
+        NTSTATUS status = HidP_TranslateUsagesToI8042ScanCodes(
+            &usage,
+            1,
+            HidP_Keyboard_Make,
+            &modifiers,
+            insertFunc,
+            reinterpret_cast<PVOID>(&usagesToScanCodes));
+        CHECK(status == HIDP_STATUS_SUCCESS || status == HIDP_STATUS_I8042_TRANS_UNKNOWN);
+
+        // no mapping
+        if (usagesToScanCodes.back().second == 0)
+        {
+            usagesToScanCodes.pop_back();
+        }
     }
 
-    std::vector<uint16_t> ret;
-    for (uint16_t scanCode : scanCodes)
+    // Additional scan codes that are mapped to HID_USAGE_PAGE_CONSUMER page
+    // Looks like HidP_TranslateUsageAndPagesToI8042ScanCodes cannot be called from user-mode
+    // So just add known buttons to the list:
+    static struct
     {
-        ret.emplace_back(scanCode);
+        uint32_t usage;
+        uint16_t scanCode;
+    } consumer[] =
+    {
+        { 0x00b5, 0xe019 }, // Scan Next Track
+        { 0x00b6, 0xe010 }, // Scan Previous Track
+        { 0x00b7, 0xe024 }, // Stop
+        { 0x00cd, 0xe022 }, // Play/Pause
+        { 0x00e2, 0xe020 }, // Mute
+        { 0x00e9, 0xe030 }, // Volume Increment
+        { 0x00ea, 0xe02e }, // Volume Decrement
+        { 0x0183, 0xe06d }, // AL Consumer Control Configuration
+        { 0x018a, 0xe06c }, // AL Email Reader
+        { 0x0192, 0xe021 }, // AL Calculator
+        { 0x0194, 0xe06b }, // AL Local Machine Browser
+        { 0x0221, 0xe065 }, // AC Search
+        { 0x0223, 0xe032 }, // AC Home
+        { 0x0225, 0xe069 }, // AC Back
+        { 0x0226, 0xe068 }, // AC Forward
+        { 0x0227, 0xe067 }, // AC Stop
+        { 0x022a, 0xe066 }, // AC Refresh
+        { 0x022a, 0xe06a }, // AC Previous Link
+    };
+
+    for (const auto& p : consumer)
+    {
+        usagesToScanCodes.emplace_back(std::make_pair(HID_USAGE_PAGE_CONSUMER << 16 | p.usage, p.scanCode));
     }
 
-    return ret;
+
+
+    return usagesToScanCodes;
 }
 
 std::string GetScanCodeName(uint16_t scanCode)
