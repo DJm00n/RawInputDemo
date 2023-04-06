@@ -887,11 +887,15 @@ std::string VkToString(uint16_t vk)
     if ((vk >= (uint16_t)'A') && (vk <= (uint16_t)'Z') ||
         (vk >= (uint16_t)'0') && (vk <= (uint16_t)'9'))
     {
-        std::snprintf(str.data(), str.size(), "VK_%c", vk);
+        std::snprintf(str.data(), str.size(), "VK_KEY_%c", vk);
+    }
+    else if (vk == 0)
+    {
+        return "VK_NONE";
     }
     else
     {
-        std::snprintf(str.data(), str.size(), "0x%x", vk);
+        std::snprintf(str.data(), str.size(), "VK_0x%x", vk);
     }
 
     return std::string(str.data(), str.size());
