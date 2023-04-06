@@ -626,6 +626,8 @@ std::string GetScanCodeName(uint16_t scanCode)
         const char* keyText;
     } missingKeys[] =
     {
+        { 0x0059, "Num Equals"}, // VK_CLEAR
+        { 0x005c, "International 6"}, // VK_OEM_JUMP
         { 0x0064, "F13"}, // VK_F13
         { 0x0065, "F14"}, // VK_F14
         { 0x0066, "F15"}, // VK_F15
@@ -637,18 +639,11 @@ std::string GetScanCodeName(uint16_t scanCode)
         { 0x006c, "F21"}, // VK_F21
         { 0x006d, "F22"}, // VK_F22
         { 0x006e, "F23"}, // VK_F23
+        { 0x0071, "Lang 2"}, // VK_OEM_RESET
+        { 0x0073, "Non Convert"}, // VK_ABNT_C1
         { 0x0076, "F24"}, // VK_F24
-        { 0x007d, ""},
-        { 0x007e, ""},
-        { 0x007f, ""},
-        { 0x0080, ""},
-        { 0x0081, ""},
-        { 0x0082, ""},
-        { 0x0083, ""},
-        { 0x0084, ""},
-        { 0x0085, ""},
-        { 0x0086, ""},
-        { 0x0087, ""},
+        { 0x007b, "International 5"}, // VK_OEM_PA1
+        { 0x007e, "Num Comma"}, // VK_ABNT_C2
         { 0xe010, "Previous Track"}, // VK_MEDIA_PREV_TRACK
         { 0xe019, "Next Track"}, // VK_MEDIA_NEXT_TRACK
         { 0xe020, "Volume Mute"}, // VK_VOLUME_MUTE
@@ -682,6 +677,21 @@ std::string GetScanCodeName(uint16_t scanCode)
     if (!keyTextWide.empty() && !std::iswblank(keyTextWide[0]) && !std::iswcntrl(keyTextWide[0]))
     {
         return keyText;
+    }
+
+    // Keyboard Scan Code Specification:
+    //
+    // Avoid Set 1 scan codes above 0x79, since the release (key up) code would be
+    // 0xFA or greater, and the keyboard driver is known to interpret such values as
+    // responses from the 8042 chip, not as keystrokes (scan codes).
+    //
+    // Avoid 0x60 and 0x61, since the release (up key) code would be 0xE0 and 0xE1,
+    // which are reserved prefix bytes.
+    //
+    // But GetKeyNameTextW may return some WRONG values. Skip.
+    if ((scanCode & 0xff) > 0x79 || (scanCode & 0xff) == 0x60 || (scanCode & 0xff) == 0x61)
+    {
+        return "";
     }
 
     std::array<wchar_t, 128> buffer{};
