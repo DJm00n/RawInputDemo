@@ -545,6 +545,12 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
             break;
         }
 
+        // Swap NumLock and Pause scan codes as Win32 does.
+        if (scanCode == 0x45)
+            scanCode = 0xe045;
+        else if (scanCode == 0xe045)
+            scanCode = 0x45;
+
         usagesToScanCodes->back().second = scanCode;
 
         return TRUE;
