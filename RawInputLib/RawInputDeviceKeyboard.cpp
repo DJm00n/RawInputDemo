@@ -2,6 +2,7 @@
 #include "framework.h"
 
 #include "RawInputDeviceKeyboard.h"
+#include "printvk.h"
 
 #pragma warning(push, 0)
 #include <winioctl.h>

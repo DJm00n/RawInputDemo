@@ -6,6 +6,7 @@
 #include "RawInputDemo.h"
 
 #include <RawInputDeviceManager.h>
+#include <printvk.h>
 
 #include <windowsx.h>
 #include <algorithm>
