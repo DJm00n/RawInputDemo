@@ -307,6 +307,10 @@ std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType)
 
 BOOL Bcp47FromHkl(HKL hkl, LPWSTR pszDest, DWORD cchDest)
 {
+    constexpr wchar_t userProfileRegPath[] = L"Control Panel\\International\\User Profile";
+    constexpr wchar_t regLanguages[] = L"Languages";
+    constexpr wchar_t regTransientLangId[] = L"TransientLangId";
+
     LANGID langId = LOWORD(HandleToUlong(hkl));
 
     memset(pszDest, 0, sizeof(WCHAR) * cchDest);
@@ -317,43 +321,40 @@ BOOL Bcp47FromHkl(HKL hkl, LPWSTR pszDest, DWORD cchDest)
         langId == LOCALE_TRANSIENT_KEYBOARD4)
     {
         HKEY key;
-        LSTATUS status;
         LPWSTR buffer;
-        DWORD size;
+        DWORD size = 0;
 
-        status = RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\International\\User Profile", 0, KEY_READ, &key);
-        if (status != ERROR_SUCCESS)
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, userProfileRegPath, 0, KEY_READ, &key) != ERROR_SUCCESS)
             return FALSE;
 
-        status = RegGetValueW(key, NULL, L"Languages", RRF_RT_REG_MULTI_SZ, NULL, NULL, &size);
-        if (status != ERROR_SUCCESS)
+        if (RegGetValueW(key, NULL, regLanguages, RRF_RT_REG_MULTI_SZ, NULL, NULL, &size) != ERROR_SUCCESS)
             return FALSE;
 
         buffer = (LPWSTR)malloc(size);
 
-        status = RegGetValueW(key, NULL, L"Languages", RRF_RT_REG_MULTI_SZ, NULL, buffer, &size);
-        if (status == ERROR_SUCCESS)
+        if (RegGetValueW(key, NULL, regLanguages, RRF_RT_REG_MULTI_SZ, NULL, buffer, &size) != ERROR_SUCCESS)
         {
-            for (LPWSTR lang = buffer; *lang; lang += wcsnlen_s(lang, (size / sizeof(WCHAR)) - (lang - buffer)) + 1)
-            {
-                DWORD regLangId = 0;
-                DWORD regLangIdSize = sizeof(regLangId);
-                status = RegGetValueW(key, lang, L"TransientLangId", RRF_RT_REG_DWORD, NULL, &regLangId, &regLangIdSize);
-                if (status == ERROR_SUCCESS)
-                {
-                    if (langId == regLangId)
-                    {
-                        wcscpy_s(pszDest, cchDest, lang);
-                        break;
-                    }
-                }
-            }
+            free(buffer);
+            return FALSE;
+        }
+
+        for (LPWSTR lang = buffer; *lang; lang += wcsnlen_s(lang, (size / sizeof(WCHAR)) - (lang - buffer)) + 1)
+        {
+            DWORD regLangId = 0;
+            DWORD regLangIdSize = sizeof(regLangId);
+            if (RegGetValueW(key, lang, regTransientLangId, RRF_RT_REG_DWORD, NULL, &regLangId, &regLangIdSize) != ERROR_SUCCESS)
+                continue;
+
+            if (langId != regLangId)
+                continue;
+
+            wcscpy_s(pszDest, cchDest, lang);
+            break;
         }
 
         free(buffer);
 
-        status = RegCloseKey(key);
-        if (status != ERROR_SUCCESS)
+        if (RegCloseKey(key) != ERROR_SUCCESS)
             return FALSE;
     }
 
@@ -375,6 +376,9 @@ std::string GetBcp47FromHkl(HKL hkl)
 
 std::string GetKlidFromHkl(HKL hkl)
 {
+    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
+    constexpr wchar_t regLayoutId[] = L"Layout Id";
+
     wchar_t klid[KL_NAMELENGTH] = { 0 };
 
     WORD device = HIWORD(hkl);
@@ -384,7 +388,7 @@ std::string GetKlidFromHkl(HKL hkl)
         WORD layoutId = device & 0x0fff;
 
         HKEY key;
-        CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
+        CHECK_EQ(::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyboardLayoutsRegPath, 0, KEY_READ, &key), ERROR_SUCCESS);
 
         DWORD index = 0;
         wchar_t buffer[KL_NAMELENGTH];
@@ -393,7 +397,7 @@ std::string GetKlidFromHkl(HKL hkl)
         {
             wchar_t layoutIdBuffer[MAX_PATH] = {};
             DWORD layoutIdBufferSize = sizeof(layoutIdBuffer);
-            if (::RegGetValueW(key, buffer, L"Layout Id", RRF_RT_REG_SZ, nullptr, layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
+            if (::RegGetValueW(key, buffer, regLayoutId, RRF_RT_REG_SZ, nullptr, layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
             {
                 if (layoutId == std::stoul(layoutIdBuffer, nullptr, 16))
                 {
@@ -429,14 +433,15 @@ std::string GetKlidFromHkl(HKL hkl)
 
 std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 {
-    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts\\";
+    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
     constexpr wchar_t keyboardLayoutDisplayName[] = L"Layout Display Name";
     constexpr wchar_t keyboardLayoutText[] = L"Layout Text";
 
     // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
     // https://learn.microsoft.com/windows/win32/intl/using-registry-string-redirection#create-resources-for-keyboard-layout-strings
     HKEY key;
-    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, std::wstring(keyboardLayoutsRegPath).append(utf8::widen(klid)).c_str(), &key), ERROR_SUCCESS);
+    const std::wstring fullRegPath = std::wstring(keyboardLayoutsRegPath) + L"\\" + utf8::widen(klid);
+    CHECK_EQ(::RegOpenKeyExW(HKEY_LOCAL_MACHINE, fullRegPath.c_str(), 0, KEY_READ, &key), ERROR_SUCCESS);
 
     // https://learn.microsoft.com/windows/win32/intl/locating-redirected-strings#load-a-language-neutral-registry-value
     std::unique_ptr<wchar_t[]> buffer;
@@ -546,10 +551,12 @@ std::string GetLayoutDescriptionIcu(HKL hkl)
 
 std::vector<std::string> EnumInstalledKeyboardLayouts()
 {
+    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
+
     std::vector<std::string> layouts;
 
     HKEY key;
-    CHECK_EQ(::RegOpenKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts", &key), ERROR_SUCCESS);
+    CHECK_EQ(::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyboardLayoutsRegPath, 0, KEY_READ, &key), ERROR_SUCCESS);
 
     DWORD index = 0;
     wchar_t layoutName[MAX_PATH] = {};
