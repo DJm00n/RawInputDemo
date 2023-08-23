@@ -305,58 +305,70 @@ std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType)
     return utf8::narrow(buffer.get());
 }
 
-std::string GetBcp47FromHkl(HKL hkl)
+BOOL Bcp47FromHkl(HKL hkl, LPWSTR pszDest, DWORD cchDest)
 {
-    // According to the GetKeyboardLayout API function docs low word of HKL contains input language
-    // identifier.
-    LANGID langId = LOWORD(hkl);
-    wchar_t language[LOCALE_NAME_MAX_LENGTH] = { 0 };
+    LANGID langId = LOWORD(HandleToUlong(hkl));
 
-    // We need to convert the language identifier to a language tag as soon as
-    // possible, because they are obsolete and may have a transient value - 0x2000,
-    // 0x2400, 0x2800, 0x2C00.
-    // https://learn.microsoft.com/globalization/locale/locale-names#the-deprecation-of-lcids
-    //
-    // It turns out that the LCIDToLocaleName API may return incorrect language tags
-    // for transient language identifiers. For example, it returns "nqo-GN" and
-    // "jv-Java-ID" instead of the "nqo" and "jv-Java" (as seen in the
-    // Get-WinUserLanguageList PowerShell cmdlet). Try to extract proper language tag
-    // from registry.
+    memset(pszDest, 0, sizeof(WCHAR) * cchDest);
+
     if (langId == LOCALE_TRANSIENT_KEYBOARD1 ||
         langId == LOCALE_TRANSIENT_KEYBOARD2 ||
         langId == LOCALE_TRANSIENT_KEYBOARD3 ||
         langId == LOCALE_TRANSIENT_KEYBOARD4)
     {
         HKEY key;
-        CHECK_EQ(::RegOpenKeyW(HKEY_CURRENT_USER, L"Control Panel\\International\\User Profile", &key), ERROR_SUCCESS);
+        LSTATUS status;
+        LPWSTR buffer;
+        DWORD size;
 
-        DWORD bytes = 0;
-        CHECK_EQ(::RegGetValueW(key, nullptr, L"Languages", RRF_RT_REG_MULTI_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
+        status = RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\International\\User Profile", 0, KEY_READ, &key);
+        if (status != ERROR_SUCCESS)
+            return FALSE;
 
-        std::unique_ptr<wchar_t[]> installedLanguages(new wchar_t[bytes / sizeof(wchar_t)]);
-        CHECK_EQ(::RegGetValueW(key, nullptr, L"Languages", RRF_RT_REG_MULTI_SZ, nullptr, installedLanguages.get(), &bytes), ERROR_SUCCESS);
+        status = RegGetValueW(key, NULL, L"Languages", RRF_RT_REG_MULTI_SZ, NULL, NULL, &size);
+        if (status != ERROR_SUCCESS)
+            return FALSE;
 
-        for (wchar_t* installedLanguage = installedLanguages.get(); *installedLanguage; installedLanguage += wcslen(installedLanguage) + 1)
+        buffer = (LPWSTR)malloc(size);
+
+        status = RegGetValueW(key, NULL, L"Languages", RRF_RT_REG_MULTI_SZ, NULL, buffer, &size);
+        if (status == ERROR_SUCCESS)
         {
-            DWORD transientLangId = 0;
-            bytes = sizeof(transientLangId);
-            if (::RegGetValueW(key, installedLanguage, L"TransientLangId", RRF_RT_REG_DWORD, nullptr, &transientLangId, &bytes) == ERROR_SUCCESS)
+            for (LPWSTR lang = buffer; *lang; lang += wcsnlen_s(lang, (size / sizeof(WCHAR)) - (lang - buffer)) + 1)
             {
-                if (langId == transientLangId)
+                DWORD regLangId = 0;
+                DWORD regLangIdSize = sizeof(regLangId);
+                status = RegGetValueW(key, lang, L"TransientLangId", RRF_RT_REG_DWORD, NULL, &regLangId, &regLangIdSize);
+                if (status == ERROR_SUCCESS)
                 {
-                    wcscpy(language, installedLanguage);
-                    break;
+                    if (langId == regLangId)
+                    {
+                        wcscpy_s(pszDest, cchDest, lang);
+                        break;
+                    }
                 }
             }
         }
 
-        CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
+        free(buffer);
+
+        status = RegCloseKey(key);
+        if (status != ERROR_SUCCESS)
+            return FALSE;
     }
 
-    if (wcslen(language) == 0)
+    if (wcsnlen_s(pszDest, cchDest) == 0)
     {
-        CHECK(::LCIDToLocaleName(langId, language, (int)std::size(language), 0));
+        LCIDToLocaleName(MAKELCID(langId, SORT_DEFAULT), pszDest, cchDest, 0);
     }
+
+    return wcsnlen_s(pszDest, cchDest) != 0;
+}
+
+std::string GetBcp47FromHkl(HKL hkl)
+{
+    wchar_t language[LOCALE_NAME_MAX_LENGTH] = { 0 };
+    Bcp47FromHkl(hkl, language, (DWORD)std::size(language));
 
     return utf8::narrow(language);
 }
