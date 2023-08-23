@@ -180,7 +180,9 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
     GetLayoutProfile(layoutProfileId, &layoutProfile);
     std::string layoutDescription2 = GetLayoutProfileDescription(layoutProfileId);
 
-    DBGPRINT("Switched to `%s`", layoutDescription.c_str());
+    std::string layoutDescription3 = GetLayoutDescriptionIcu(hkl);
+
+    DBGPRINT("Switched to `%s`", layoutDescription3.c_str());
 
     std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();
 

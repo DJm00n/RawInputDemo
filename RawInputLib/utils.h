@@ -170,6 +170,9 @@ std::string GetKeyboardLayoutDisplayName(const std::string& klid);
 // Mimics GetLayoutProfileDescription API
 std::string GetLayoutDescription(HKL hkl);
 
+// Same as GetLayoutDescription but with ICU
+std::string GetLayoutDescriptionIcu(HKL hkl);
+
 // Returns installed keyboard layout names
 // https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
 std::vector<std::string> EnumInstalledKeyboardLayouts();

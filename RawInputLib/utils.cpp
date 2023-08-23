@@ -456,9 +456,77 @@ std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 std::string GetLayoutDescription(HKL hkl)
 {
     std::string locale = GetBcp47FromHkl(hkl);
-    std::string layoutId = GetKlidFromHkl(hkl);
-
     std::string layoutLang = GetLocaleInformation(locale, LOCALE_SLOCALIZEDDISPLAYNAME);
+
+    std::string layoutId = GetKlidFromHkl(hkl);
+    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+
+    return layoutLang + " - " + layoutDisplayName;
+}
+
+std::string GetIcuLocaleFromBcp47(const std::string& langTag)
+{
+    typedef int32_t(*uloc_forLanguageTagFunc)(const char* langtag, char* localeID, int32_t localeIDCapacity, int32_t* parsedLength, int* err);
+    static uloc_forLanguageTagFunc pfnUloc_forLanguageTag = reinterpret_cast<uloc_forLanguageTagFunc>(::GetProcAddress(::LoadLibraryW(L"icuuc.dll"), "uloc_forLanguageTag"));
+
+    if (!pfnUloc_forLanguageTag)
+        return {};
+
+    int32_t parsedLength = 0;
+    int errorCode = 0;
+    std::array<char, 512> buffer;
+    int32_t length = pfnUloc_forLanguageTag(langTag.c_str(), buffer.data(), static_cast<int32_t>(buffer.size() - 1), &parsedLength, &errorCode);
+
+    if (errorCode != 0)
+        return {};
+
+    return std::string(buffer.data(), length);
+}
+
+std::string GetIcuMinLocaleIDFromLocaleID(const std::string& localeID)
+{
+    typedef int32_t(*uloc_minimizeSubtagsFunc)(const char* localeID, char* minimizedLocaleID, int32_t minimizedLocaleIDCapacity, int* err);
+    static uloc_minimizeSubtagsFunc pfUloc_minimizeSubtags = reinterpret_cast<uloc_minimizeSubtagsFunc>(::GetProcAddress(::LoadLibraryW(L"icuuc.dll"), "uloc_minimizeSubtags"));
+
+    if (!pfUloc_minimizeSubtags)
+        return {};
+
+    int errorCode = 0;
+    std::array<char, 512> buffer;
+    int32_t length = pfUloc_minimizeSubtags(localeID.c_str(), buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
+
+    if (errorCode != 0)
+        return {};
+
+    return std::string(buffer.data(), length);
+}
+
+std::string GetIcuLocaleDisplayName(const std::string& icuLocale)
+{
+    typedef int32_t(*uloc_getDisplayNameFunc)(const char* localeID, const char* inLocaleID, wchar_t* result, int32_t maxResultSize, int* err);
+    static uloc_getDisplayNameFunc pfnUloc_getDisplayName = reinterpret_cast<uloc_getDisplayNameFunc>(::GetProcAddress(::LoadLibraryW(L"icuuc.dll"), "uloc_getDisplayName"));
+
+    if (!pfnUloc_getDisplayName)
+        return {};
+
+    int errorCode = 0;
+    std::array<wchar_t, 512> buffer;
+    int32_t length = pfnUloc_getDisplayName(icuLocale.c_str(), "en", buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
+
+    if (errorCode != 0)
+        return {};
+
+    return utf8::narrow(buffer.data(), length);
+}
+
+std::string GetLayoutDescriptionIcu(HKL hkl)
+{
+    std::string locale = GetBcp47FromHkl(hkl);
+    std::string icuLocale = GetIcuLocaleFromBcp47(locale);
+    std::string icuLocaleMin = GetIcuMinLocaleIDFromLocaleID(icuLocale);
+    std::string layoutLang = GetIcuLocaleDisplayName(icuLocaleMin);
+
+    std::string layoutId = GetKlidFromHkl(hkl);
     std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
 
     return layoutLang + " - " + layoutDisplayName;
