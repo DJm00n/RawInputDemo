@@ -606,49 +606,41 @@ std::string GetStringFromKeyPress(uint16_t scanCode)
     return utf8::narrow(chars.data(), std::abs(count));
 }
 
-std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
+std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
 {
-    std::vector<std::pair<uint32_t, uint16_t>> usagesToScanCodes;
+    std::map<uint32_t, uint32_t> usagesToScanCodes;
+    using InsertContext = std::pair<std::map<uint32_t, uint32_t>*, uint32_t>;
 
     PHIDP_INSERT_SCANCODES insertFunc =
         [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
     {
-        auto usagesToScanCodes = reinterpret_cast<std::vector<std::pair<uint32_t, uint16_t>>*>(context);
+        auto& usagesToScanCodes = *reinterpret_cast<InsertContext*>(context)->first;
+        uint32_t usageAndPage = reinterpret_cast<InsertContext*>(context)->second;
 
         CHECK_LE(length, 3);
 
-        uint16_t scanCode = 0;
         switch (length)
         {
         case 1:
-            scanCode = MAKEWORD(newScanCodes[0] & 0x7f, 0);
+            usagesToScanCodes[usageAndPage] = (uint8_t)newScanCodes[0];
             break;
         case 2:
-            scanCode = MAKEWORD(newScanCodes[1], newScanCodes[0]);
+            usagesToScanCodes[usageAndPage] = ((uint8_t)newScanCodes[0] << 8) | (uint8_t)newScanCodes[1];
             break;
         case 3:
-            // The only known case is 0xe11d45 for Pause key. Map it to 0xe045 as Win32 does.
-            scanCode = MAKEWORD(newScanCodes[2], 0xe0);
+            usagesToScanCodes[usageAndPage] = ((uint8_t)newScanCodes[0] << 16) | ((uint8_t)newScanCodes[1] << 8) | (uint8_t)newScanCodes[2];
             break;
         }
-
-        // Swap NumLock and Pause scan codes as Win32 does.
-        if (scanCode == 0x45)
-            scanCode = 0xe045;
-        else if (scanCode == 0xe045)
-            scanCode = 0x45;
-
-        usagesToScanCodes->back().second = scanCode;
 
         return TRUE;
     };
 
     // Translate declared usages from HID_USAGE_PAGE_KEYBOARD page
-    for (USAGE usage = 0x00; usage <= 0xe7; ++usage)
+    for (uint32_t usageAndPage = (HID_USAGE_PAGE_KEYBOARD << 16); usageAndPage <= ((HID_USAGE_PAGE_KEYBOARD << 16) | 0xff); ++usageAndPage)
     {
+        USAGE usage = usageAndPage & 0xff;
         HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
-
-        usagesToScanCodes.emplace_back(std::make_pair<uint32_t, uint16_t>(HID_USAGE_PAGE_KEYBOARD << 16 | usage, 0));
+        InsertContext context = std::make_pair(&usagesToScanCodes, usageAndPage);
 
         NTSTATUS status = HidP_TranslateUsagesToI8042ScanCodes(
             &usage,
@@ -656,14 +648,8 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
             HidP_Keyboard_Make,
             &modifiers,
             insertFunc,
-            reinterpret_cast<PVOID>(&usagesToScanCodes));
+            reinterpret_cast<PVOID>(&context));
         CHECK(status == HIDP_STATUS_SUCCESS || status == HIDP_STATUS_I8042_TRANS_UNKNOWN);
-
-        // no mapping
-        if (usagesToScanCodes.back().second == 0)
-        {
-            usagesToScanCodes.pop_back();
-        }
     }
 
     // Additional mapped scan codes that.
@@ -671,15 +657,13 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
     // So just add known buttons to the list:
     static struct
     {
-        uint32_t usage;
-        uint16_t scanCode;
+        uint32_t usageAndPage;
+        uint32_t scanCode;
     } additionalMappings[] =
     {
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0081, 0xe05e }, // System Power Down
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0082, 0xe05f }, // System Sleep
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0083, 0xe063 }, // System Wake Up
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b6, 0xe010 }, // Scan Previous Track
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b7, 0xe024 }, // Stop
@@ -693,16 +677,16 @@ std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes()
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x0194, 0xe06b }, // AL Local Machine Browser
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x0221, 0xe065 }, // AC Search
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x0223, 0xe032 }, // AC Home
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0225, 0xe069 }, // AC Back
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0226, 0xe068 }, // AC Forward
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0227, 0xe067 }, // AC Stop
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe066 }, // AC Refresh
-        { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe06a }, // AC Previous Link
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0224, 0xe06a }, // AC Back
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0225, 0xe069 }, // AC Forward
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0226, 0xe068 }, // AC Stop
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x0227, 0xe067 }, // AC Refresh
+        { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe066 }, // AC Previous Link
     };
 
     for (const auto& mapping : additionalMappings)
     {
-        usagesToScanCodes.emplace_back(std::make_pair(mapping.usage, mapping.scanCode));
+        usagesToScanCodes[mapping.usageAndPage] = mapping.scanCode;
     }
 
     return usagesToScanCodes;
@@ -734,6 +718,8 @@ std::string GetScanCodeName(uint16_t scanCode)
         { 0x0076, "F24"}, // VK_F24
         { 0x007b, "International 5"}, // VK_OEM_PA1
         { 0x007e, "Num Comma"}, // VK_ABNT_C2
+        { 0x00f2, "Hanja"}, // VK_HANJA
+        { 0x00f1, "Hangeul"}, // VK_HANGEUL
         { 0xe010, "Previous Track"}, // VK_MEDIA_PREV_TRACK
         { 0xe019, "Next Track"}, // VK_MEDIA_NEXT_TRACK
         { 0xe020, "Volume Mute"}, // VK_VOLUME_MUTE

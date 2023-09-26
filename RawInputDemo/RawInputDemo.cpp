@@ -123,6 +123,10 @@ void UpdateKeyNames()
 
     auto usagesToScanCodes = GetUsagesToScanCodes();
 
+    // Do what Win32 USER subsystem doing
+    usagesToScanCodes[0x00070048] = 0x45; // Keyboard Pause
+    usagesToScanCodes[0x00070053] = 0xe045; // Keypad Num Lock and Clear
+
     for (const auto& usageToScanCode : usagesToScanCodes)
     {
         const uint16_t scanCode = usageToScanCode.second;

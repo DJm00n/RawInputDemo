@@ -3,6 +3,7 @@
 #pragma warning(push, 0)
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 #include <iostream>
 #include <cwctype>
@@ -184,7 +185,7 @@ std::string GetStringFromKeyPress(uint16_t scanCode);
 std::string GetScanCodeName(uint16_t scanCode);
 
 // Get the list of scan codes that are mapped to HID usages
-std::vector<std::pair<uint32_t, uint16_t>> GetUsagesToScanCodes();
+std::map<uint32_t, uint32_t> GetUsagesToScanCodes();
 
 //#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)
