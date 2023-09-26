@@ -123,9 +123,8 @@ void UpdateKeyNames()
 
     auto usagesToScanCodes = GetUsagesToScanCodes();
 
-    // Do what Win32 USER subsystem doing
-    usagesToScanCodes[0x00070048] = 0x45; // Keyboard Pause
-    usagesToScanCodes[0x00070053] = 0xe045; // Keypad Num Lock and Clear
+    // Do what Win32 USER subsystem is doing: swap Pause and NumLock scan codes
+    std::swap(usagesToScanCodes[0x00070048], usagesToScanCodes[0x00070053]);
 
     for (const auto& usageToScanCode : usagesToScanCodes)
     {
@@ -186,7 +185,7 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 
     std::string layoutDescription3 = GetLayoutDescriptionIcu(hkl);
 
-    DBGPRINT("Switched to `%s`", layoutDescription3.c_str());
+    DBGPRINT("Switched to `%s` input language", layoutDescription3.c_str());
 
     std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();
 
