@@ -696,7 +696,7 @@ std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
 
 std::string GetScanCodeName(uint16_t scanCode)
 {
-    /*static struct
+    static struct
     {
         uint16_t scanCode;
         const char* keyText;
@@ -720,6 +720,8 @@ std::string GetScanCodeName(uint16_t scanCode)
         { 0x0072, "LANG1"}, // VK_HANJA in Korean layout
         { 0x0073, "International 1"}, // VK_ABNT_C1
         { 0x0076, "F24"}, // VK_F24
+        { 0x0077, "LANG4"}, //
+        { 0x0078, "LANG3"}, //
         { 0x0079, "International 4"}, // VK_CONVERT in Japan layout
         { 0x007b, "International 5"}, // VK_OEM_PA1 or VK_NONCONVERT in Japan layout
         { 0x007e, "Keypad Comma"}, // VK_ABNT_C2 in Japan layout
@@ -750,7 +752,7 @@ std::string GetScanCodeName(uint16_t scanCode)
     auto it = std::find_if(std::begin(missingKeys), std::end(missingKeys),
         [scanCode](auto& key) { return key.scanCode == scanCode; });
     if (it != std::end(missingKeys))
-        return it->keyText;*/
+        return it->keyText;
 
     std::string keyText = GetStringFromKeyPress(scanCode);
     std::wstring keyTextWide = utf8::widen(keyText);
