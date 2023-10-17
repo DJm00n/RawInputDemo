@@ -608,51 +608,52 @@ std::string GetStringFromKeyPress(uint16_t scanCode)
 
 std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
 {
-    std::map<uint32_t, uint32_t> usagesToScanCodes;
-    using InsertContext = std::pair<std::map<uint32_t, uint32_t>*, uint32_t>;
-
-    PHIDP_INSERT_SCANCODES insertFunc =
-        [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
-    {
-        auto& usagesToScanCodes = *reinterpret_cast<InsertContext*>(context)->first;
-        uint32_t usageAndPage = reinterpret_cast<InsertContext*>(context)->second;
-
-        CHECK_LE(length, 3);
-
-        switch (length)
-        {
-        case 1:
-            usagesToScanCodes[usageAndPage] = (uint8_t)newScanCodes[0];
-            break;
-        case 2:
-            usagesToScanCodes[usageAndPage] = ((uint8_t)newScanCodes[0] << 8) | (uint8_t)newScanCodes[1];
-            break;
-        case 3:
-            usagesToScanCodes[usageAndPage] = ((uint8_t)newScanCodes[0] << 16) | ((uint8_t)newScanCodes[1] << 8) | (uint8_t)newScanCodes[2];
-            break;
-        }
-
-        return TRUE;
-    };
-
     // Translate declared usages from HID_USAGE_PAGE_KEYBOARD page
-    for (uint32_t usageAndPage = (HID_USAGE_PAGE_KEYBOARD << 16); usageAndPage <= ((HID_USAGE_PAGE_KEYBOARD << 16) | 0xff); ++usageAndPage)
+    // See 10. Keyboard/Keypad Page (0x07) in HID Usage Tables 1.4
+    std::map<uint32_t, uint32_t> usagesToScanCodes;
+    constexpr USAGE minKeyboardUsage = 0x01; 
+    constexpr USAGE maxKeboardUsage = 0xe7;
+    for (USAGE usage = minKeyboardUsage; usage <= maxKeboardUsage; ++usage)
     {
-        USAGE usage = usageAndPage & 0xff;
         HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
-        InsertContext context = std::make_pair(&usagesToScanCodes, usageAndPage);
+        uint32_t scanCode = 0;
 
         NTSTATUS status = HidP_TranslateUsagesToI8042ScanCodes(
             &usage,
             1,
             HidP_Keyboard_Make,
             &modifiers,
-            insertFunc,
-            reinterpret_cast<PVOID>(&context));
+            [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
+            {
+                uint32_t& scanCode = *reinterpret_cast<uint32_t*>(context);
+
+                CHECK_LE(length, 3);
+
+                switch (length)
+                {
+                case 1:
+                    scanCode = (uint8_t)newScanCodes[0];
+                    break;
+                case 2:
+                    scanCode = ((uint8_t)newScanCodes[0] << 8) | (uint8_t)newScanCodes[1];
+                    break;
+                case 3:
+                    scanCode = ((uint8_t)newScanCodes[0] << 16) | ((uint8_t)newScanCodes[1] << 8) | (uint8_t)newScanCodes[2];
+                    break;
+                }
+
+                return TRUE;
+            },
+            reinterpret_cast<PVOID>(&scanCode));
         CHECK(status == HIDP_STATUS_SUCCESS || status == HIDP_STATUS_I8042_TRANS_UNKNOWN);
+
+        if (scanCode != 0)
+        {
+            usagesToScanCodes[(HID_USAGE_PAGE_KEYBOARD << 16) | usage] = scanCode;
+        }
     }
 
-    // Additional mapped scan codes that.
+    // Additional mapped scan codes.
     // Looks like HidP_TranslateUsageAndPagesToI8042ScanCodes cannot be called from user-mode
     // So just add known buttons to the list:
     static struct
@@ -664,6 +665,7 @@ std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0081, 0xe05e }, // System Power Down
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0082, 0xe05f }, // System Sleep
         { HID_USAGE_PAGE_GENERIC << 16 | 0x0083, 0xe063 }, // System Wake Up
+        { HID_USAGE_PAGE_KEYBOARD << 16 | 0x0001, 0x00ff }, // ErrorRollOver
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b5, 0xe019 }, // Scan Next Track
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b6, 0xe010 }, // Scan Previous Track
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x00b7, 0xe024 }, // Stop

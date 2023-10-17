@@ -124,7 +124,7 @@ void UpdateKeyNames()
     auto usagesToScanCodes = GetUsagesToScanCodes();
 
     // Do what Win32 USER subsystem is doing: swap Pause and NumLock scan codes
-    std::swap(usagesToScanCodes[0x00070048], usagesToScanCodes[0x00070053]);
+    usagesToScanCodes[0x00070048] = 0xe045;
 
     for (const auto& usageToScanCode : usagesToScanCodes)
     {
