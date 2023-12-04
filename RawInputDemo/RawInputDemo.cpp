@@ -185,6 +185,8 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 
     std::string layoutDescription3 = GetLayoutDescriptionIcu(hkl);
 
+    std::string layoutDescription4 = GetLayoutDescriptionWinRT(hkl);
+
     DBGPRINT("Switched to `%s` input language", layoutDescription3.c_str());
 
     std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();

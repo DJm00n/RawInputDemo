@@ -174,6 +174,9 @@ std::string GetLayoutDescription(HKL hkl);
 // Same as GetLayoutDescription but with ICU
 std::string GetLayoutDescriptionIcu(HKL hkl);
 
+// Same as GetLayoutDescription but with UWP API
+std::string GetLayoutDescriptionWinRT(HKL hkl);
+
 // Returns installed keyboard layout names
 // https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
 std::vector<std::string> EnumInstalledKeyboardLayouts();

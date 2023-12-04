@@ -3,6 +3,7 @@
 #include "framework.h"
 
 #include "utils.h"
+#include "utils_winrt.h"
 
 #include <cwctype>
 #include <codecvt>
@@ -472,8 +473,8 @@ std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 
 std::string GetLayoutDescription(HKL hkl)
 {
-    std::string locale = GetBcp47FromHkl(hkl);
-    std::string layoutLang = GetLocaleInformation(locale, LOCALE_SLOCALIZEDDISPLAYNAME);
+    std::string languageTag = GetBcp47FromHkl(hkl);
+    std::string layoutLang = GetLocaleInformation(languageTag, LOCALE_SLOCALIZEDDISPLAYNAME);
 
     std::string layoutId = GetKlidFromHkl(hkl);
     std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
@@ -538,10 +539,21 @@ std::string GetIcuLocaleDisplayName(const std::string& icuLocale)
 
 std::string GetLayoutDescriptionIcu(HKL hkl)
 {
-    std::string locale = GetBcp47FromHkl(hkl);
-    std::string icuLocale = GetIcuLocaleFromBcp47(locale);
+    std::string languageTag = GetBcp47FromHkl(hkl);
+    std::string icuLocale = GetIcuLocaleFromBcp47(languageTag);
     std::string icuLocaleMin = GetIcuMinLocaleIDFromLocaleID(icuLocale);
     std::string layoutLang = GetIcuLocaleDisplayName(icuLocaleMin);
+
+    std::string layoutId = GetKlidFromHkl(hkl);
+    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+
+    return layoutLang + " - " + layoutDisplayName;
+}
+
+std::string GetLayoutDescriptionWinRT(HKL hkl)
+{
+    std::string languageTag = GetBcp47FromHklWinRT(hkl);
+    std::string layoutLang = GetLanguageNameWinRT(languageTag.c_str());
 
     std::string layoutId = GetKlidFromHkl(hkl);
     std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);

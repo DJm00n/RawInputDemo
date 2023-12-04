@@ -51,6 +51,9 @@
     <ClInclude Include="printvk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="utils_winrt.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -81,6 +84,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="printvk.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="utils_winrt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

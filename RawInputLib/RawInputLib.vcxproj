@@ -104,10 +104,7 @@
     </Link>
     <ProjectReference />
     <Lib />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
@@ -134,10 +131,7 @@
     </Link>
     <ProjectReference />
     <Lib />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
@@ -150,7 +144,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/wd4820 /wd4514 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -160,10 +154,7 @@
     </Link>
     <ProjectReference />
     <Lib />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
@@ -190,10 +181,7 @@
     </Link>
     <ProjectReference />
     <Lib />
-    <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
-    </Lib>
+    <Lib />
     <Lib>
       <AdditionalLibraryDirectories>$(SolutionDir)packages\fmt.7.0.1\lib\native\lib\$(PlatformTarget);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
@@ -211,6 +199,7 @@
     <ClInclude Include="CfgMgr32Wrapper.h" />
     <ClInclude Include="UsbDevice.h" />
     <ClInclude Include="utils.h" />
+    <ClInclude Include="utils_winrt.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="keycodeconverter.cpp" />
@@ -228,6 +217,7 @@
     <ClCompile Include="RawInputDeviceMouse.cpp" />
     <ClCompile Include="UsbDevice.cpp" />
     <ClCompile Include="utils.cpp" />
+    <ClCompile Include="utils_winrt.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="dom_code_data.inc" />
