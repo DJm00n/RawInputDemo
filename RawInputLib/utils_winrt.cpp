@@ -12,6 +12,24 @@
 
 std::string GetLanguageNameWinRT(const std::string& languageTag)
 {
+    HRESULT hr = S_OK;
+    static HMODULE winlangdb = ::LoadLibraryW(L"winlangdb.dll");
+
+    // Undocumented method used by Get-WinUserLanguageList
+    typedef HRESULT(*GetLanguageNamesFunc)(LPCWSTR languageTag, LPWSTR autonym, LPWSTR englishName, LPWSTR localName, LPWSTR scriptName);
+    static GetLanguageNamesFunc GetLanguageNames = reinterpret_cast<GetLanguageNamesFunc>(::GetProcAddress(winlangdb, "GetLanguageNames"));
+
+    WCHAR autonym[MAX_PATH] = { 0 };
+    WCHAR englishName[MAX_PATH] = { 0 };
+    WCHAR localName[MAX_PATH] = { 0 };
+    WCHAR scriptName[MAX_PATH] = { 0 };
+    hr = GetLanguageNames(utf8::widen(languageTag).c_str(), autonym, englishName, localName, scriptName);
+
+    return utf8::narrow(localName);
+}
+
+std::string GetLanguageName2WinRT(const std::string& languageTag)
+{
     HSTRING_HEADER hStringHeader;
     HSTRING hString = nullptr;
     HRESULT hr = S_OK;
@@ -106,7 +124,7 @@ std::string GetBcp47FromHklWinRT(HKL hkl)
 
     static HMODULE bcp47langs = ::LoadLibraryW(L"bcp47langs.dll");
 
-    // Undocumented method
+    // Undocumented method used by Get-WinUserLanguageList
     typedef HRESULT(*Bcp47FromHklFunc)(HKL hkl, HSTRING* hString);
     static Bcp47FromHklFunc Bcp47FromHkl = reinterpret_cast<Bcp47FromHklFunc>(::GetProcAddress(bcp47langs, "Bcp47FromHkl"));
 

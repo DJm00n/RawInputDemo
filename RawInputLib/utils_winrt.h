@@ -5,4 +5,5 @@
 #pragma warning(pop)
 
 std::string GetLanguageNameWinRT(const std::string& languageTag);
+std::string GetLanguageName2WinRT(const std::string& languageTag);
 std::string GetBcp47FromHklWinRT(HKL hkl);
