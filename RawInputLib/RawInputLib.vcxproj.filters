@@ -42,9 +42,6 @@
     <ClInclude Include="CfgMgr32Wrapper.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="keycodeconverter.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="UsbDevice.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -77,9 +74,6 @@
     <ClCompile Include="utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="keycodeconverter.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="UsbDevice.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -89,11 +83,5 @@
     <ClCompile Include="utils_winrt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-    <None Include="dom_code_data.inc">
-      <Filter>Header Files</Filter>
-    </None>
   </ItemGroup>
 </Project>

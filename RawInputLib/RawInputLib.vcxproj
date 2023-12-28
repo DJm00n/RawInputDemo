@@ -188,7 +188,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
-    <ClInclude Include="keycodeconverter.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="printvk.h" />
     <ClInclude Include="RawInputDevice.h" />
@@ -202,7 +201,6 @@
     <ClInclude Include="utils_winrt.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="keycodeconverter.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -219,18 +217,6 @@
     <ClCompile Include="utils.cpp" />
     <ClCompile Include="utils_winrt.cpp" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="dom_code_data.inc" />
-    <None Include="packages.config" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-    <Import Project="..\packages\fmt.7.0.1\build\fmt.targets" Condition="Exists('..\packages\fmt.7.0.1\build\fmt.targets')" />
-  </ImportGroup>
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('..\packages\fmt.7.0.1\build\fmt.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\fmt.7.0.1\build\fmt.targets'))" />
-  </Target>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>

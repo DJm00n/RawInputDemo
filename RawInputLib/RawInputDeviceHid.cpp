@@ -32,9 +32,9 @@ RawInputDeviceHid::~RawInputDeviceHid()
 
 inline void HexDump2(const uint8_t* src, size_t len) {
     for (size_t i = 0; i < len; i++) {
-        fmt::print("{:02d} ", src[i]);
+        std::cout << std::format("{:02d} ", src[i]);
     }
-    fmt::print("({} bytes)\n", (int)len);
+    std::cout << std::format("({} bytes)\n", (int)len);
 }
 
 void RawInputDeviceHid::OnInput(const RAWINPUT* input)

@@ -198,7 +198,7 @@ std::string GetUnicodeCharacterNames(std::string string)
 
         // UTF-32 => UTF-8
         std::string utf8codePoint = utf32conv.to_bytes(&visibleCodePoint, &visibleCodePoint + 1);
-        characterNames.append(fmt::format("{} <U+{:X} {}>", utf8codePoint, static_cast<uint32_t>(codePoint), charName));
+        characterNames.append(std::format("{} <U+{:X} {}>", utf8codePoint, static_cast<uint32_t>(codePoint), charName));
     }
 
     return characterNames;
@@ -807,7 +807,7 @@ VOID DebugPrint(const char* /*function_name*/, unsigned int /*line_number*/, con
 
     va_end(args);
 
-    ::OutputDebugStringW(utf8::widen(fmt::format("{}\n", formatted.data())).c_str());
+    ::OutputDebugStringW(utf8::widen(std::format("{}\n", formatted.data())).c_str());
     std::printf("%s\n", formatted.data());
 }
 //#endif

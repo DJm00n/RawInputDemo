@@ -25,8 +25,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <fmt/format.h>
 #include <iostream>
+#include <format>
 
 #pragma warning(pop)
 
