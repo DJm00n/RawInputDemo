@@ -130,30 +130,30 @@ namespace HID
 
     // additional keys
     static const struct ScanCode2HID {
-        uint32_t hidUsage;
         uint16_t scanCode;
+        uint32_t hidUsage;
     } additionalMappings[] = {
-        { 0x00010081, 0xe05e }, // Generic Desktop System Power Down
-        { 0x00010082, 0xe05f }, // Generic Desktop System Sleep
-        { 0x00010083, 0xe063 }, // Generic Desktop System Wake Up
-        { 0x000c00b5, 0xe019 }, // Consumer Scan Next Track
-        { 0x000c00b6, 0xe010 }, // Consumer Scan Previous Track
-        { 0x000c00b7, 0xe024 }, // Consumer Stop
-        { 0x000c00cd, 0xe022 }, // Consumer Play/Pause
-        { 0x000c00e2, 0xe020 }, // Consumer Mute
-        { 0x000c00e9, 0xe030 }, // Consumer Volume Increment
-        { 0x000c00ea, 0xe02e }, // Consumer Volume Decrement
-        { 0x000c0183, 0xe06d }, // Consumer AL Consumer Control Configuration
-        { 0x000c018a, 0xe06c }, // Consumer AL Email Reader
-        { 0x000c0192, 0xe021 }, // Consumer AL Calculator
-        { 0x000c0194, 0xe06b }, // Consumer AL Local Machine Browser
-        { 0x000c0221, 0xe065 }, // Consumer AC Search
-        { 0x000c0223, 0xe032 }, // Consumer AC Home
-        { 0x000c0224, 0xe06a }, // Consumer AC Back
-        { 0x000c0225, 0xe069 }, // Consumer AC Forward
-        { 0x000c0226, 0xe068 }, // Consumer AC Stop
-        { 0x000c0227, 0xe067 }, // Consumer AC Refresh
-        { 0x000c022a, 0xe066 }, // Consumer AC Bookmarks
+        { 0xe010, MAKELONG(HID_USAGE_CONSUMER_SCAN_PREV_TRACK, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe019, MAKELONG(HID_USAGE_CONSUMER_SCAN_NEXT_TRACK, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe020, MAKELONG(HID_USAGE_CONSUMER_MUTE, HID_USAGE_PAGE_CONSUMER)  },
+        { 0xe021, MAKELONG(HID_USAGE_CONSUMER_AL_CALCULATOR, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe022, MAKELONG(HID_USAGE_CONSUMER_PLAY_PAUSE, HID_USAGE_PAGE_CONSUMER)},
+        { 0xe024, MAKELONG(HID_USAGE_CONSUMER_STOP, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe02e, MAKELONG(HID_USAGE_CONSUMER_VOLUME_DECREMENT, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe030, MAKELONG(HID_USAGE_CONSUMER_VOLUME_INCREMENT, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe032, MAKELONG(HID_USAGE_CONSUMER_AC_HOME, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe05e, MAKELONG(HID_USAGE_GENERIC_SYSCTL_POWER, HID_USAGE_PAGE_GENERIC) },
+        { 0xe05f, MAKELONG(HID_USAGE_GENERIC_SYSCTL_SLEEP, HID_USAGE_PAGE_GENERIC) },
+        { 0xe063, MAKELONG(HID_USAGE_GENERIC_SYSCTL_WAKE, HID_USAGE_PAGE_GENERIC) },
+        { 0xe065, MAKELONG(HID_USAGE_CONSUMER_AC_SEARCH, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe066, MAKELONG(HID_USAGE_CONSUMER_AC_BOOKMARKS, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe067, MAKELONG(HID_USAGE_CONSUMER_AC_REFRESH, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe068, MAKELONG(HID_USAGE_CONSUMER_AC_STOP, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe069, MAKELONG(HID_USAGE_CONSUMER_AC_FORWARD, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe06a, MAKELONG(HID_USAGE_CONSUMER_AC_BACK, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe06b, MAKELONG(HID_USAGE_CONSUMER_AL_BROWSER, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe06c, MAKELONG(HID_USAGE_CONSUMER_AL_EMAIL, HID_USAGE_PAGE_CONSUMER) },
+        { 0xe06d, MAKELONG(HID_USAGE_CONSUMER_AL_CONFIGURATION, HID_USAGE_PAGE_CONSUMER) },
     };
 
     static uint8_t ScanCodeToHIDUsageKeyboard(uint16_t scanCode)
@@ -181,7 +181,7 @@ namespace HID
     {
         uint32_t usage = ScanCodeToHIDUsageKeyboard(scanCode);
         if (usage != 0)
-            return (uint32_t)(HID_USAGE_PAGE_KEYBOARD << 16) | usage;
+            return MAKELONG(usage, HID_USAGE_PAGE_KEYBOARD);
 
         auto it = std::find_if(std::begin(additionalMappings), std::end(additionalMappings), [scanCode](const ScanCode2HID& mapping) { return mapping.scanCode == scanCode; });
         if (it != std::end(additionalMappings))
@@ -192,7 +192,7 @@ namespace HID
 
     static uint16_t HIDUsageToScanCode(uint32_t usage)
     {
-        if ((usage >> 16) == HID_USAGE_PAGE_KEYBOARD)
+        if (HIWORD(usage) == HID_USAGE_PAGE_KEYBOARD)
             return HIDUsageToScanCodeKeyboard(usage & 0xff);
 
         auto it = std::find_if(std::begin(additionalMappings), std::end(additionalMappings), [usage](const ScanCode2HID& mapping) { return mapping.hidUsage == usage; });
@@ -235,22 +235,19 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
     if (keyboard.VKey >= 0xff/*VK__none_*/)
         return;
 
-    uint16_t scanCode = keyboard.MakeCode;
+    WORD scanCode = keyboard.MakeCode;
+    BOOL keyUp = keyboard.Flags & RI_KEY_BREAK;
     if (scanCode != 0)
     {
         // Windows `On-Screen Keyboard` tool can send wrong
         // scan codes with high-order bit set (key break code).
-        // Strip it.
-        scanCode &= 0x7f;
-
-        // Scan codes could contain 0xe0 or 0xe1 one-byte prefix.
-        // See https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/translate.pdf
-        scanCode |= (keyboard.Flags & RI_KEY_E0) ? 0xe000 : 0;
-        scanCode |= (keyboard.Flags & RI_KEY_E1) ? 0xe100 : 0;
+        // Strip it and add extended scan code value.
+        scanCode = MAKEWORD(scanCode & 0x7f, ((keyboard.Flags & RI_KEY_E0) ? 0xe0 : ((keyboard.Flags & RI_KEY_E1) ? 0xe1 : 0x00)));
     }
     else
     {
         // Windows may not report scan codes for some buttons (like multimedia buttons).
+        // Map them manually from VK code.
         scanCode = LOWORD(MapVirtualKeyW(keyboard.VKey, MAPVK_VK_TO_VSC_EX));
     }
 
@@ -271,6 +268,15 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         break;
     }
 
+    uint32_t usbKeyCode = HID::ScanCodeToHIDUsage(scanCode);
+    std::string scanCodeName = GetScanCodeName(scanCode);
+    BYTE dikCode = DirectInput::ScanCodeToDIKCode(scanCode);
+    std::string dikCodeName = DirectInput::DIKCodeToString(dikCode);
+
+    CHECK_EQ(scanCode, HID::HIDUsageToScanCode(usbKeyCode));
+    CHECK_EQ(scanCode, DirectInput::DIKCodeToScanCode(dikCode));
+
+    // VK code example:
     uint16_t vkCode = keyboard.VKey;
     switch (vkCode)
     {
@@ -280,15 +286,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
         break;
     }
-
-    bool keyUp = (keyboard.Flags & RI_KEY_BREAK) == RI_KEY_BREAK;
-    uint32_t usbKeyCode = HID::ScanCodeToHIDUsage(scanCode);
-    std::string scanCodeName = GetScanCodeName(scanCode);
-    BYTE dikCode = DirectInput::ScanCodeToDIKCode(scanCode);
-    std::string dikCodeName = DirectInput::DIKCodeToString(dikCode);
-
-    CHECK_EQ(scanCode, HID::HIDUsageToScanCode(usbKeyCode));
-    CHECK_EQ(scanCode, DirectInput::DIKCodeToScanCode(dikCode));
+    std::string vkCodeName = VkToString(vkCode);
 
     DBGPRINT("Keyboard '%s': %s Usage(%04x: %04x), ScanCode(0x%04x), VirtualKeyCode(%s), ScanCodeName(`%s`), DIKCode(0x%02x), DIKCodeName(`%s`)\n",
         GetInterfacePath().c_str(),
@@ -296,7 +294,7 @@ void RawInputDeviceKeyboard::OnInput(const RAWINPUT* input)
         HIWORD(usbKeyCode),
         LOWORD(usbKeyCode),
         scanCode,
-        VkToString(vkCode).c_str(),
+        vkCodeName.c_str(),
         scanCodeName.c_str(),
         dikCode,
         dikCodeName.c_str());
