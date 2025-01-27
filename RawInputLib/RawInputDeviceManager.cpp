@@ -14,11 +14,11 @@
 
 namespace
 {
-    void DumpInfo(const RawInputDevice* /*device*/)
+    void DumpInfo(const RawInputDevice* device)
     {
-        //DBGPRINT("Interface path: %s", device->GetInterfacePath().c_str());
-        //DBGPRINT("Manufacturer String: %s", device->GetManufacturerString().c_str());
-        //DBGPRINT("Product String: %s", device->GetProductString().c_str());
+        DBGPRINT("Interface path: %s", device->GetInterfacePath().c_str());
+        DBGPRINT("Manufacturer String: %s", device->GetManufacturerString().c_str());
+        DBGPRINT("Product String: %s", device->GetProductString().c_str());
         //DBGPRINT("IsHidDevice: %d", device->IsHidDevice());
         //DBGPRINT("VID/PID: [%04X:%04X]", device->GetVendorId(), device->GetProductId());
         //DBGPRINT("GetProductId: %d", );
@@ -38,7 +38,8 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     void OnInputMessage(HRAWINPUT dataHandle);
 
-    void OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected);
+    void OnDeviceConnected(HANDLE deviceHandle);
+    void OnDeviceDisonnected(HANDLE deviceHandle);
 
     void EnumerateDevices();
 
@@ -90,7 +91,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
         {
         case WM_CHAR:
         {
-            wchar_t ch = LOWORD(wParam);
+            //wchar_t ch = LOWORD(wParam);
 
             // we don't support non-BMP chars
             //if (IS_LOW_SURROGATE(ch) || IS_HIGH_SURROGATE(ch))
@@ -104,15 +105,31 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
         {
             CHECK(wParam == GIDC_ARRIVAL || wParam == GIDC_REMOVAL);
             HANDLE deviceHandle = reinterpret_cast<HANDLE>(lParam);
-            bool isConnected = (wParam == GIDC_ARRIVAL);
-            manager->OnInputDeviceConnected(deviceHandle, isConnected);
 
+            switch (wParam)
+            {
+            case GIDC_ARRIVAL:
+                manager->OnDeviceConnected(deviceHandle);
+                break;
+            case GIDC_REMOVAL:
+                manager->OnDeviceDisonnected(deviceHandle);
+                break;
+            }
             return 0;
         }
+
         case WM_INPUT:
         {
             HRAWINPUT dataHandle = reinterpret_cast<HRAWINPUT>(lParam);
             manager->OnInputMessage(dataHandle);
+
+            return 0;
+        }
+
+        case WM_INPUTLANGCHANGE:
+        {
+            //int a = 666;
+            //UpdateKeyNames();
 
             return 0;
         }
@@ -125,7 +142,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun()
     CHECK(::SetWindowSubclass(m_hWnd, subClassProc, 0, reinterpret_cast<DWORD_PTR>(this)));
 
     // use keyboard state of the parent thread
-    //CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
+    CHECK(::AttachThreadInput(::GetCurrentThreadId(), m_ParentThreadId, true));
 
     CHECK(Register());
 
@@ -236,34 +253,45 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInputMessage(HRAWINPUT dataHa
     OnInput(input);
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnInputDeviceConnected(HANDLE deviceHandle, bool isConnected)
+void RawInputDeviceManager::RawInputManagerImpl::OnDeviceConnected(HANDLE deviceHandle)
 {
-    if (isConnected)
+    RID_DEVICE_INFO deviceInfo;
+    CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
+
+    if (FindDevice(deviceInfo.dwType, deviceHandle) != nullptr)
     {
-        RID_DEVICE_INFO deviceInfo;
-        CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
-
-        if (FindDevice(deviceInfo.dwType, deviceHandle) != nullptr)
-        {
-            DBGPRINT("Skipping already detected device 0x%x of type %d", deviceHandle, deviceInfo.dwType);
-            return;
-        }
-
-        auto new_device = CreateRawInputDevice(deviceInfo.dwType, deviceHandle);
-        //CHECK(new_device && new_device->IsValid());
-
-        auto emplace_result = m_Devices.emplace(deviceHandle, std::move(new_device));
-        CHECK(emplace_result.second);
-
-        // TODO LOG
-        DBGPRINT("Connected raw input device. Handle=%x", deviceHandle);
-        DumpInfo(emplace_result.first->second.get());
+        DBGPRINT("Skipping already detected device 0x%x of type %d", deviceHandle, deviceInfo.dwType);
+        return;
     }
-    else
-    {
-        DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
-        CHECK(m_Devices.erase(deviceHandle));
-    }
+
+    auto new_device = CreateRawInputDevice(deviceInfo.dwType, deviceHandle);
+    //CHECK(new_device && new_device->IsValid());
+
+    auto emplace_result = m_Devices.emplace(deviceHandle, std::move(new_device));
+    CHECK(emplace_result.second);
+
+    // TODO LOG
+    std::string deviceTypeStr;
+	switch (deviceInfo.dwType)
+	{
+	case RIM_TYPEMOUSE:
+        deviceTypeStr = "mouse";
+        break;
+	case RIM_TYPEKEYBOARD:
+        deviceTypeStr = "keyboard";
+        break;
+	case RIM_TYPEHID:
+        deviceTypeStr = "HID";
+        break;
+	}
+    DBGPRINT("Connected raw input %s. Handle=%x", deviceTypeStr.c_str(),deviceHandle);
+    DumpInfo(emplace_result.first->second.get());
+}
+
+void RawInputDeviceManager::RawInputManagerImpl::OnDeviceDisonnected(HANDLE deviceHandle)
+{
+    DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
+    CHECK(m_Devices.erase(deviceHandle));
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
@@ -291,10 +319,10 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
     for (auto& device : device_list)
     {
         if (m_Devices.find(device.hDevice) == m_Devices.end())
-            OnInputDeviceConnected(device.hDevice, true);
+            OnDeviceConnected(device.hDevice);
     }
 
-    std::list<decltype(m_Devices)::iterator> removed_devices;
+    std::vector<HANDLE> removed_handles;
     for (auto it = m_Devices.begin(); it != m_Devices.end(); ++it)
     {
         auto deviceListIt = std::find_if(device_list.begin(), device_list.end(),
@@ -304,12 +332,12 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
             });
 
         if (deviceListIt == device_list.end())
-            removed_devices.push_back(it);
+            removed_handles.push_back(it->first);
     }
 
     // Clear out old devices that weren't part of this enumeration pass.
-    for(auto& device : removed_devices)
-        OnInputDeviceConnected(device->first, false);
+    for (HANDLE handle : removed_handles)
+        OnDeviceDisonnected(handle);
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input) const
@@ -406,7 +434,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
     if (keyboard.Flags & RI_KEY_BREAK)
         keyFlags |= KF_UP;
 
-    ::PostMessageW(m_hWnd, keyboard.Message, keyboard.VKey, MAKELONG(1/*repeatCount*/, keyFlags));
+    //::PostMessageW(m_hWnd, keyboard.Message, keyboard.VKey, MAKELONG(1/*repeatCount*/, keyFlags));
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const

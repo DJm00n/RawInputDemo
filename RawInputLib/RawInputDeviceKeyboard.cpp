@@ -193,7 +193,7 @@ namespace HID
     static uint16_t HIDUsageToScanCode(uint32_t usage)
     {
         if (HIWORD(usage) == HID_USAGE_PAGE_KEYBOARD)
-            return HIDUsageToScanCodeKeyboard(usage & 0xff);
+            return HIDUsageToScanCodeKeyboard(LOBYTE(usage));
 
         auto it = std::find_if(std::begin(additionalMappings), std::end(additionalMappings), [usage](const ScanCode2HID& mapping) { return mapping.hidUsage == usage; });
         if (it != std::end(additionalMappings))
