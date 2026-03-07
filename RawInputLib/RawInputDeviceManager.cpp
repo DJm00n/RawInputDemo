@@ -108,8 +108,8 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     void EnumerateDevices();
 
-    void OnInput(const RAWINPUT* input) const;
-    void OnKeyboardEvent(const RAWKEYBOARD& keyboard) const;
+    void OnInput(const RAWINPUT* input);
+    void OnKeyboardEvent(const RAWKEYBOARD& keyboard);
 
     std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE deviceHandle) const;
     RawInputDevice* FindDevice(DWORD deviceType, HANDLE deviceHandle) const;
@@ -126,6 +126,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     uint8_t m_KeyState[256] = {};   // our thread's keyboard state
     wchar_t m_DeadChar = 0;         // current dead key (for systems before 1607)
+    wchar_t m_PendingSurrogate = 0;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
@@ -441,7 +442,7 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
         OnDeviceDisonnected(handle);
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input) const
+void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 {
     CHECK(input);
 
@@ -466,7 +467,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input) 
     }
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard) const
+void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard)
 {
     if (keyboard.VKey == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey >= 0xFF)
         return;
@@ -559,26 +560,44 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
         kDoNotChangeDead,
         layout);
 
-    // ToUnicodeEx return values:
-    //  > 0  — result символов записано в buf (обычно 1, иногда 2 для лигатур)
-    //    0  — нет символа (управляющие клавиши, modifier-only)
-    //   -1  — dead key: следующий вызов завершит композицию
-    //  < -1 — не бывает на практике, но API это допускает
+    const auto emitUtf16Sequence = [&](const wchar_t* seq, int len,
+                                       const std::function<void(char32_t)>& callback)
+    {
+        if (!callback)
+            return;
+
+        for (int i = 0; i < len; )
+        {
+            wchar_t wc = seq[i++];
+
+            if (IS_HIGH_SURROGATE(wc))
+            {
+                m_PendingSurrogate = wc;
+                continue;
+            }
+
+            char32_t codepoint;
+            if (IS_LOW_SURROGATE(wc) && m_PendingSurrogate != 0)
+            {
+                codepoint = 0x10000u
+                    + ((static_cast<char32_t>(m_PendingSurrogate) - 0xD800u) << 10)
+                    +  (static_cast<char32_t>(wc)                 - 0xDC00u);
+                m_PendingSurrogate = 0;
+            }
+            else
+            {
+                m_PendingSurrogate = 0;
+                codepoint = static_cast<char32_t>(wc);
+            }
+
+            callback(codepoint);
+        }
+    };
 
     if (result > 0)
-    {
-        // Surrogate pairs: ToUnicodeEx может вернуть 2 wchar_t для
-        // символов за пределами BMP (U+10000 и выше).
-        //OnCharacter(std::wstring_view(buf, result));
-    }
-    else if (result == -1)
-    {
-        // Dead key нажат. С флагом kDoNotChangeDead кеш ядра не тронут,
-        // но мы можем захотеть показать пользователю pending-символ
-        // (подчёркнутый в строке ввода). buf[0] содержит сам dead char.
-        //OnDeadKey(buf[0]);
-    }
-    // result == 0: нет символа, ничего не делаем
+        //emitUtf16Sequence(buf, result, OnCharacter);
+    else if (result < 0)
+        //emitUtf16Sequence(buf, -result, OnDeadKey);
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
