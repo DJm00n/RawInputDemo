@@ -124,6 +124,9 @@ struct RawInputDeviceManager::RawInputManagerImpl
     AlignedBuffer m_InputBuffer;
     UINT          m_InputBufferSize = 0;
 
+    uint8_t m_KeyState[256] = {};   // our thread's keyboard state
+    wchar_t m_DeadChar = 0;         // current dead key (for systems before 1607)
+
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
 
@@ -465,21 +468,117 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input) 
 
 void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard) const
 {
-    if (keyboard.VKey >= 0xff/*VK__none_*/)
+    if (keyboard.VKey == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey >= 0xFF)
         return;
 
-    // Note: AttachThreadInput has been removed. It unified the input queues of
-    // this thread and the parent thread, which caused blocking in one thread to
-    // stall input in the other, and made GetKeyboardState / SetKeyboardState
-    // affect both threads unpredictably.
+    const bool isKeyDown = !(keyboard.Flags & RI_KEY_BREAK);
+    const bool isE0      =  (keyboard.Flags & RI_KEY_E0) != 0;
+
+    // ------------------------------------------------------------------
+    // 1. Обновляем теневой keyState
     //
-    // To translate VKeys to characters pass the HKL explicitly:
+    // GetKeyboardState в этом потоке бесполезен — окно без фокуса,
+    // состояние всегда пустое. Ведём его вручную по raw events.
     //
-    //   HKL layout = ::GetKeyboardLayout(m_ParentThreadId);
-    //   ToUnicodeEx(vk, sc, keyState, buf, bufLen, flags, layout);
+    // Биты keyState[vk]:
+    //   0x80 — клавиша нажата прямо сейчас
+    //   0x01 — toggle-состояние (CapsLock, NumLock, ScrollLock)
+    // ------------------------------------------------------------------
+    if (isKeyDown)
+        m_KeyState[keyboard.VKey] |= 0x80;
+    else
+        m_KeyState[keyboard.VKey] &= ~0x80;
+
+    // Для Shift/Control/Menu сырой VKey может быть generic (VK_SHIFT),
+    // но нам нужны левый/правый варианты чтобы ToUnicodeEx различал их.
+    // MapVirtualKeyW(sc, MAPVK_VSC_TO_VK_EX) даёт точный VK_L*/VK_R*.
+    const UINT scanCode = MAKEWORD(keyboard.MakeCode, isE0 ? 0xe0 : 0);
+    switch (keyboard.VKey)
+    {
+    case VK_SHIFT:
+    case VK_CONTROL:
+    case VK_MENU:
+    {
+        UINT vkExtended = ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
+        if (vkExtended)
+        {
+            if (isKeyDown)
+                m_KeyState[vkExtended] |= 0x80;
+            else
+                m_KeyState[vkExtended] &= ~0x80;
+        }
+        break;
+    }
+
+    // Toggle-клавиши: инвертируем бит 0x01 только на key-down.
+    case VK_CAPITAL:
+    case VK_NUMLOCK:
+    case VK_SCROLL:
+        if (isKeyDown)
+            m_KeyState[keyboard.VKey] ^= 0x01;
+        break;
+    }
+
+    // ------------------------------------------------------------------
+    // 2. Преобразуем в Unicode только на key-down
     //
-    // Use wFlags bit 2 (Windows 10 1607+) to avoid mutating pkl->wchDiacritic
-    // (the dead-key cache) on the parent thread's keyboard state.
+    // Key-up тоже может изменить состояние dead-key кеша (сброс),
+    // поэтому при использовании wFlags=0 нужно вызывать ToUnicodeEx
+    // и на key-up. С wFlags бит 2 (Windows 10 1607+) кеш не трогается
+    // вообще — можно вызывать только на key-down.
+    // ------------------------------------------------------------------
+    if (!isKeyDown)
+        return;
+
+    // Не генерируем символы для modifier-клавиш
+    switch (keyboard.VKey)
+    {
+    case VK_SHIFT: case VK_LSHIFT:   case VK_RSHIFT:
+    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL:
+    case VK_MENU:  case VK_LMENU:    case VK_RMENU:
+    case VK_CAPITAL: case VK_NUMLOCK: case VK_SCROLL:
+        return;
+    }
+
+    HKL layout = ::GetKeyboardLayout(m_ParentThreadId);
+
+    // wFlags бит 2: не мутировать pkl->wchDiacritic (dead-key кеш).
+    // Доступен с Windows 10 1607 (Anniversary Update).
+    // В отдельном потоке без AttachThreadInput кеш и так изолирован —
+    // этот флаг нужен только для надёжности на случай если поведение
+    // изменится, и как явная документация намерения.
+    constexpr UINT kDoNotChangeDead = 0x04;
+
+    wchar_t buf[4] = {};
+    int result = ::ToUnicodeEx(
+        keyboard.VKey,
+        keyboard.MakeCode,
+        m_KeyState,
+        buf,
+        static_cast<int>(std::size(buf)),
+        kDoNotChangeDead,
+        layout);
+
+    // ToUnicodeEx return values:
+    //  > 0  — result символов записано в buf (обычно 1, иногда 2 для лигатур)
+    //    0  — нет символа (управляющие клавиши, modifier-only)
+    //   -1  — dead key: следующий вызов завершит композицию
+    //  < -1 — не бывает на практике, но API это допускает
+
+    if (result > 0)
+    {
+        // Surrogate pairs: ToUnicodeEx может вернуть 2 wchar_t для
+        // символов за пределами BMP (U+10000 и выше).
+        //OnCharacter(std::wstring_view(buf, result));
+    }
+    else if (result == -1)
+    {
+        // Dead key нажат. С флагом kDoNotChangeDead кеш ядра не тронут,
+        // но мы можем захотеть показать пользователю pending-символ
+        // (подчёркнутый в строке ввода). buf[0] содержит сам dead char.
+        //OnDeadKey(buf[0]);
+    }
+    // result == 0: нет символа, ничего не делаем
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
