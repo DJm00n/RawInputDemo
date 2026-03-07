@@ -124,7 +124,6 @@ struct RawInputDeviceManager::RawInputManagerImpl
     UINT          m_InputBufferSize = 0;
 
     uint8_t m_KeyState[256] = {};   // our thread's keyboard state
-    wchar_t m_DeadChar = 0;         // current dead key (for systems before 1607)
     wchar_t m_PendingSurrogate = 0;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
@@ -450,7 +449,10 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 
 void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard)
 {
-    if (keyboard.VKey == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey >= 0xFF)
+    if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE)
+        return;
+    
+    if (keyboard.VKey >= 0xFF)
         return;
 
     const bool isKeyDown = !(keyboard.Flags & RI_KEY_BREAK);
@@ -501,14 +503,6 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
         break;
     }
 
-    // ------------------------------------------------------------------
-    // 2. Преобразуем в Unicode только на key-down
-    //
-    // Key-up тоже может изменить состояние dead-key кеша (сброс),
-    // поэтому при использовании wFlags=0 нужно вызывать ToUnicodeEx
-    // и на key-up. С wFlags бит 2 (Windows 10 1607+) кеш не трогается
-    // вообще — можно вызывать только на key-down.
-    // ------------------------------------------------------------------
     if (!isKeyDown)
         return;
 
@@ -523,22 +517,15 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
     }
 
     HKL layout = ::GetKeyboardLayout(m_ParentThreadId);
-
-    // wFlags бит 2: не мутировать pkl->wchDiacritic (dead-key кеш).
-    // Доступен с Windows 10 1607 (Anniversary Update).
-    // В отдельном потоке без AttachThreadInput кеш и так изолирован —
-    // этот флаг нужен только для надёжности на случай если поведение
-    // изменится, и как явная документация намерения.
-    constexpr UINT kDoNotChangeDead = 0x04;
-
-    wchar_t buf[4] = {};
+    
+    wchar_t buf[16] = {};
     int result = ::ToUnicodeEx(
         keyboard.VKey,
-        keyboard.MakeCode,
+        keyboard.MakeCode | (isE0 ? 0x100 : 0),
         m_KeyState,
         buf,
         static_cast<int>(std::size(buf)),
-        kDoNotChangeDead,
+        0,
         layout);
 
     const auto emitUtf16Sequence = [&](const wchar_t* seq, int len,
