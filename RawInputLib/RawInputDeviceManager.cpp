@@ -449,84 +449,24 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 
 void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard)
 {
-    if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE)
-        return;
-    
-    if (keyboard.VKey >= 0xFF)
+    if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey >= 0xFF)
         return;
 
     const bool isKeyDown = !(keyboard.Flags & RI_KEY_BREAK);
     const bool isE0      =  (keyboard.Flags & RI_KEY_E0) != 0;
+    const UINT scanCode  = keyboard.MakeCode | (isE0 ? 0x100 : 0);
 
-    // ------------------------------------------------------------------
-    // 1. Обновляем теневой keyState
-    //
-    // GetKeyboardState в этом потоке бесполезен — окно без фокуса,
-    // состояние всегда пустое. Ведём его вручную по raw events.
-    //
-    // Биты keyState[vk]:
-    //   0x80 — клавиша нажата прямо сейчас
-    //   0x01 — toggle-состояние (CapsLock, NumLock, ScrollLock)
-    // ------------------------------------------------------------------
-    if (isKeyDown)
-        m_KeyState[keyboard.VKey] |= 0x80;
-    else
-        m_KeyState[keyboard.VKey] &= ~0x80;
+    const auto updateKeyState = [&](UINT vk)
+    {
+        if (isKeyDown) m_KeyState[vk] |= 0x80;
+        else           m_KeyState[vk] &= ~0x80;
 
-    // Для Shift/Control/Menu сырой VKey может быть generic (VK_SHIFT),
-    // но нам нужны левый/правый варианты чтобы ToUnicodeEx различал их.
-    // MapVirtualKeyW(sc, MAPVK_VSC_TO_VK_EX) даёт точный VK_L*/VK_R*.
-    const UINT scanCode = MAKEWORD(keyboard.MakeCode, isE0 ? 0xe0 : 0);
-    switch (keyboard.VKey)
-    {
-    case VK_SHIFT:
-    case VK_CONTROL:
-    case VK_MENU:
-    {
-        UINT vkExtended = ::MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
-        if (vkExtended)
+        if (UINT vkEx = ::MapVirtualKeyW(MAKEWORD(keyboard.MakeCode, isE0 ? 0xe0 : 0x00), MAPVK_VSC_TO_VK_EX))
         {
-            if (isKeyDown)
-                m_KeyState[vkExtended] |= 0x80;
-            else
-                m_KeyState[vkExtended] &= ~0x80;
+            if (isKeyDown) m_KeyState[vkEx] |= 0x80;
+            else           m_KeyState[vkEx] &= ~0x80;
         }
-        break;
-    }
-
-    // Toggle-клавиши: инвертируем бит 0x01 только на key-down.
-    case VK_CAPITAL:
-    case VK_NUMLOCK:
-    case VK_SCROLL:
-        if (isKeyDown)
-            m_KeyState[keyboard.VKey] ^= 0x01;
-        break;
-    }
-
-    if (!isKeyDown)
-        return;
-
-    // Не генерируем символы для modifier-клавиш
-    switch (keyboard.VKey)
-    {
-    case VK_SHIFT: case VK_LSHIFT:   case VK_RSHIFT:
-    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL:
-    case VK_MENU:  case VK_LMENU:    case VK_RMENU:
-    case VK_CAPITAL: case VK_NUMLOCK: case VK_SCROLL:
-        return;
-    }
-
-    HKL layout = ::GetKeyboardLayout(m_ParentThreadId);
-    
-    wchar_t buf[16] = {};
-    int result = ::ToUnicodeEx(
-        keyboard.VKey,
-        keyboard.MakeCode | (isE0 ? 0x100 : 0),
-        m_KeyState,
-        buf,
-        static_cast<int>(std::size(buf)),
-        0,
-        layout);
+    };
 
     const auto emitUtf16Sequence = [&](const wchar_t* seq, int len,
                                        const std::function<void(char32_t)>& callback)
@@ -537,35 +477,54 @@ void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOA
         for (int i = 0; i < len; )
         {
             wchar_t wc = seq[i++];
+            if (IS_HIGH_SURROGATE(wc)) { m_PendingSurrogate = wc; continue; }
 
-            if (IS_HIGH_SURROGATE(wc))
+            char32_t cp;
+            if (IS_LOW_SURROGATE(wc) && m_PendingSurrogate)
             {
-                m_PendingSurrogate = wc;
-                continue;
-            }
-
-            char32_t codepoint;
-            if (IS_LOW_SURROGATE(wc) && m_PendingSurrogate != 0)
-            {
-                codepoint = 0x10000u
+                cp = 0x10000u
                     + ((static_cast<char32_t>(m_PendingSurrogate) - 0xD800u) << 10)
                     +  (static_cast<char32_t>(wc)                 - 0xDC00u);
-                m_PendingSurrogate = 0;
             }
             else
             {
-                m_PendingSurrogate = 0;
-                codepoint = static_cast<char32_t>(wc);
+                cp = static_cast<char32_t>(wc);
             }
-
-            callback(codepoint);
+            m_PendingSurrogate = 0;
+            callback(cp);
         }
     };
 
-    if (result > 0)
-        //emitUtf16Sequence(buf, result, OnCharacter);
-    else if (result < 0)
-        //emitUtf16Sequence(buf, -result, OnDeadKey);
+    const auto callToUnicodeEx = [&]
+    {
+        wchar_t buf[16] = {};
+        const int result = ::ToUnicodeEx(
+            keyboard.VKey, scanCode, m_KeyState,
+            buf, static_cast<int>(std::size(buf)), 0,
+            ::GetKeyboardLayout(m_ParentThreadId));
+
+        if (result > 0) emitUtf16Sequence(buf,  result, OnCharacter);
+        if (result < 0) emitUtf16Sequence(buf, -result, OnDeadKey);
+    };
+
+    if (!isKeyDown) callToUnicodeEx();  // до updateKeyState: Alt+Numpad
+
+    updateKeyState(keyboard.VKey);
+
+    switch (keyboard.VKey)
+    {
+    case VK_CAPITAL: case VK_NUMLOCK: case VK_SCROLL:
+        if (isKeyDown) m_KeyState[keyboard.VKey] ^= 0x01;
+        break;
+
+    case VK_SHIFT:   case VK_LSHIFT:   case VK_RSHIFT:
+    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL:
+    case VK_MENU:    case VK_LMENU:    case VK_RMENU:
+        break;
+
+    default:
+        if (isKeyDown) callToUnicodeEx();  // после updateKeyState: обычные клавиши
+    }
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
