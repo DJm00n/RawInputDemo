@@ -115,7 +115,6 @@ struct RawInputDeviceManager::RawInputManagerImpl
     RawInputDevice* FindDevice(DWORD deviceType, HANDLE deviceHandle) const;
 
     std::thread       m_Thread;
-    std::atomic<bool> m_Running = true;
     HWND              m_hWnd     = nullptr;
     DWORD             m_ThreadId = 0;       // set by ThreadRun, used for PostThreadMessage
     DWORD             m_ParentThreadId = 0;
@@ -181,17 +180,9 @@ LRESULT RawInputDeviceManager::RawInputManagerImpl::WndProc(
         return 0;
     }
 
-    case WM_INPUT:
-    {
-        // Data is consumed in the message loop via DrainRawInputQueue()
-        // before DispatchMessage. We must still call DefWindowProc so that
-        // CleanupRawInput releases the HRAWINPUT kernel handle for this
-        // specific message — without it the handle leaks one entry per message.
+    default:
         return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
     }
-    }
-
-    return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,9 +209,6 @@ RawInputDeviceManager::RawInputManagerImpl::RawInputManagerImpl()
 
 RawInputDeviceManager::RawInputManagerImpl::~RawInputManagerImpl()
 {
-    // PostThreadMessage(WM_QUIT) replaces SetEvent(m_WakeUpEvent).
-    // GetMessageW returns 0 on WM_QUIT, which exits the loop cleanly.
-    m_Running = false;
     ::PostThreadMessageW(m_ThreadId, WM_QUIT, 0, 0);
     m_Thread.join();
 }
@@ -267,21 +255,8 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     while (::GetMessageW(&msg, nullptr, 0, 0) > 0)
     {
         if (msg.message == WM_INPUT)
-        {
-            // Drain the full queue before releasing the trigger message.
-            // Drain first: events that arrived after GetMessage extracted this
-            // WM_INPUT are included in the same pass. DefWindowProc (called
-            // from WndProc via DispatchMessage) then releases only the current
-            // HRAWINPUT (lParam).
             DrainRawInputQueue();
-            ::DispatchMessageW(&msg);
-            continue;
-        }
-
-        // No TranslateMessage: this window never has keyboard focus so
-        // WM_CHAR would not be generated anyway, and calling it would
-        // mutate pkl->wchDiacritic on the shared keyboard state, corrupting
-        // dead keys in the parent thread.
+    
         ::DispatchMessageW(&msg);
     }
 
@@ -419,27 +394,33 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
 
     device_list.resize(result);
 
-    for (auto& device : device_list)
+    // Build a set of currently present handles for O(1) lookup.
+    std::unordered_set<HANDLE> current;
+    current.reserve(device_list.size());
+    for (const auto& d : device_list)
+        current.insert(d.hDevice);
+
+    // Remove devices that are no longer present.
+    for (auto it = m_Devices.begin(); it != m_Devices.end(); )
     {
-        if (m_Devices.find(device.hDevice) == m_Devices.end())
-            OnDeviceConnected(device.hDevice);
+        if (!current.count(it->first))
+        {
+            HANDLE handle = it->first;
+            it = m_Devices.erase(it);
+            OnDeviceDisonnected(handle);
+        }
+        else
+        {
+            ++it;
+        }
     }
 
-    std::vector<HANDLE> removed_handles;
-    for (auto it = m_Devices.begin(); it != m_Devices.end(); ++it)
+    // Add devices that are not yet tracked.
+    for (const auto& d : device_list)
     {
-        auto deviceListIt = std::find_if(device_list.begin(), device_list.end(),
-            [&it](const RAWINPUTDEVICELIST& device)
-            {
-                return it->first == device.hDevice;
-            });
-
-        if (deviceListIt == device_list.end())
-            removed_handles.push_back(it->first);
+        if (m_Devices.find(d.hDevice) == m_Devices.end())
+            OnDeviceConnected(d.hDevice);
     }
-
-    for (HANDLE handle : removed_handles)
-        OnDeviceDisonnected(handle);
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
