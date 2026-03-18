@@ -19,6 +19,9 @@ public:
 
     bool IsValid() { return m_IsValid; }
 
+    virtual uint32_t GetType() const = 0;
+    virtual void OnInputLanguageChanged(HKL /*hkl*/) {}
+
     // Device Interface Path. Example: `\\?\HID#VID_203A&PID_FFFC&MI_01#7&2de99099&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}`
     std::string GetInterfacePath() const { return m_InterfacePath; }
 

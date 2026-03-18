@@ -24,32 +24,17 @@ namespace
     }
 
     constexpr UINT RAW_BATCH_SIZE = 128;
+    constexpr UINT RAW_BUF_INITIAL = RAW_BATCH_SIZE * sizeof(RAWINPUT);
+
+    // Needed for NEXTRAWINPUTBLOCK call
+    typedef ULONG_PTR QWORD;
 
     // GetRawInputBuffer requires the buffer to be aligned to pointer size.
-    // On WOW64 (32-bit process on 64-bit kernel) the kernel lays out RAWINPUT
-    // with 64-bit padding, so the kernel-side struct is larger than
-    // sizeof(RAWINPUT) in the process. Multiply the initial size by 2 to
-    // avoid an immediate reallocation on the very first call.
-    constexpr std::align_val_t RAW_BUF_ALIGN{ sizeof(void*) };
-
-#ifdef _WIN64
-    constexpr UINT RAW_WOW64_FACTOR = 1;
-#else
-    constexpr UINT RAW_WOW64_FACTOR = 2;
-#endif
-
-    constexpr UINT RAW_BUF_INITIAL = RAW_BATCH_SIZE * sizeof(RAWINPUT) * RAW_WOW64_FACTOR;
+    constexpr std::align_val_t RAW_BUF_ALIGN{ sizeof(ULONG_PTR) };
 
     // Window class name for the message-only sink window.
     constexpr LPCWSTR RAW_SINK_CLASS = L"RawInputSink";
 
-    // ---------------------------------------------------------------------------
-    // Aligned buffer — wraps operator new[] / operator delete[] with explicit
-    // alignment. Replaces _aligned_malloc / _aligned_free.
-    // std::vector does not guarantee alignment beyond alignof(max_align_t),
-    // which happens to be sufficient on MSVC (16 bytes) but is an
-    // implementation detail. This makes the requirement explicit and portable.
-    // ---------------------------------------------------------------------------
     struct AlignedDeleter
     {
         std::align_val_t align;
@@ -76,121 +61,36 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     void ThreadRun(std::promise<void> readyPromise);
 
-    // ---------------------------------------------------------------------------
-    // Window procedure
-    //
-    // StaticWndProc is registered as lpfnWndProc for RAW_SINK_CLASS.
-    // On WM_NCCREATE it retrieves `this` from CREATESTRUCT::lpCreateParams,
-    // stores it in GWLP_USERDATA, and delegates all subsequent messages to
-    // the instance method WndProc.
-    //
-    // This replaces SetWindowSubclass: subclassing is appropriate when
-    // inserting into a foreign window class (e.g. Static, Button). For an
-    // owned class, registering lpfnWndProc directly is the standard pattern
-    // (ATL CWindowImpl, WTL, etc.) and avoids the extra indirection layer.
-    // ---------------------------------------------------------------------------
-    static LRESULT CALLBACK StaticWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    LRESULT WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
+    bool SetDeviceEnabled(USHORT usUsage, bool enabled);
     bool Register();
     bool Unregister();
 
-    // Drains the entire raw input queue in batches via GetRawInputBuffer.
-    // Called from the message loop on every WM_INPUT. The message itself is
-    // used only as a wake-up signal; its lParam (HRAWINPUT) is released via
-    // DefWindowProc without reading data from it — data comes exclusively
-    // from the buffer. This avoids mixing GetRawInputData and
-    // GetRawInputBuffer, which compete for the same kernel queue.
-    void DrainRawInputQueue();
-
     void OnDeviceConnected(HANDLE deviceHandle);
-    void OnDeviceDisonnected(HANDLE deviceHandle);
+    void OnDeviceDisconnected(HANDLE deviceHandle);
 
     void EnumerateDevices();
 
     void OnInput(const RAWINPUT* input);
-    void OnKeyboardEvent(const RAWKEYBOARD& keyboard);
 
     std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE deviceHandle) const;
     RawInputDevice* FindDevice(DWORD deviceType, HANDLE deviceHandle) const;
 
     std::thread       m_Thread;
     HWND              m_hWnd     = nullptr;
-    DWORD             m_ThreadId = 0;       // set by ThreadRun, used for PostThreadMessage
-    DWORD             m_ParentThreadId = 0;
 
     // Raw input buffer — aligned, grows on demand, never shrinks.
     AlignedBuffer m_InputBuffer;
     UINT          m_InputBufferSize = 0;
 
-    uint8_t m_KeyState[256] = {};   // our thread's keyboard state
-    wchar_t m_PendingSurrogate = 0;
-
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
-
-// ---------------------------------------------------------------------------
-// StaticWndProc / WndProc
-// ---------------------------------------------------------------------------
-
-LRESULT CALLBACK RawInputDeviceManager::RawInputManagerImpl::StaticWndProc(
-    HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    RawInputManagerImpl* self = nullptr;
-
-    if (uMsg == WM_NCCREATE)
-    {
-        // CREATESTRUCT::lpCreateParams carries `this` from CreateWindowEx.
-        // Store it in GWLP_USERDATA so every subsequent message can retrieve it.
-        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        self = reinterpret_cast<RawInputManagerImpl*>(cs->lpCreateParams);
-        ::SetWindowLongPtrW(hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-    }
-    else
-    {
-        self = reinterpret_cast<RawInputManagerImpl*>(::GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-    }
-
-    if (self)
-        return self->WndProc(hWnd, uMsg, wParam, lParam);
-
-    return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
-}
-
-LRESULT RawInputDeviceManager::RawInputManagerImpl::WndProc(
-    HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-    {
-    case WM_INPUT_DEVICE_CHANGE:
-    {
-        CHECK(wParam == GIDC_ARRIVAL || wParam == GIDC_REMOVAL);
-        HANDLE deviceHandle = reinterpret_cast<HANDLE>(lParam);
-
-        switch (wParam)
-        {
-        case GIDC_ARRIVAL:
-            OnDeviceConnected(deviceHandle);
-            break;
-        case GIDC_REMOVAL:
-            OnDeviceDisonnected(deviceHandle);
-            break;
-        }
-        return 0;
-    }
-
-    default:
-        return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // RawInputManagerImpl
 // ---------------------------------------------------------------------------
 
 RawInputDeviceManager::RawInputManagerImpl::RawInputManagerImpl()
-    : m_ParentThreadId(::GetCurrentThreadId())
-    , m_InputBuffer(AllocAligned(RAW_BUF_INITIAL, RAW_BUF_ALIGN))
+    : m_InputBuffer(AllocAligned(RAW_BUF_INITIAL, RAW_BUF_ALIGN))
     , m_InputBufferSize(RAW_BUF_INITIAL)
 {
     // The promise/future pair replaces m_ReadyEvent (CreateEvent / WaitForSingleObject).
@@ -208,23 +108,16 @@ RawInputDeviceManager::RawInputManagerImpl::RawInputManagerImpl()
 
 RawInputDeviceManager::RawInputManagerImpl::~RawInputManagerImpl()
 {
-    ::PostThreadMessageW(m_ThreadId, WM_QUIT, 0, 0);
+    ::PostMessageW(m_hWnd, WM_QUIT, 0, 0);
     m_Thread.join();
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> readyPromise)
 {
-    m_ThreadId = ::GetCurrentThreadId();
-
     HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
 
-    // Register our own window class with StaticWndProc as lpfnWndProc.
-    // This means GWLP_USERDATA is entirely ours — no risk of collision with
-    // a system class (e.g. Static) that might use it internally.
-    // RegisterClassEx returns 0 if the class is already registered
-    // (ERROR_CLASS_ALREADY_EXISTS), which is harmless in this context.
     WNDCLASSEXW wc  = { sizeof(wc) };
-    wc.lpfnWndProc  = StaticWndProc;
+    wc.lpfnWndProc  = DefWindowProcW;
     wc.hInstance    = hInstance;
     wc.lpszClassName = RAW_SINK_CLASS;
     ::RegisterClassExW(&wc);
@@ -242,21 +135,87 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     // Unblock the constructor — window is ready, devices are registered.
     readyPromise.set_value();
 
-    // Main message loop.
-    // WM_INPUT is intercepted before DispatchMessage so the full queue can be
-    // drained in one pass. The message is then dispatched so that WndProc
-    // calls DefWindowProc / CleanupRawInput to release the HRAWINPUT handle.
-    //
-    // No HANDLE-based wake-up event needed: the destructor posts WM_QUIT
-    // directly to this thread's queue via PostThreadMessage, which is
-    // sufficient to unblock GetMessageW.
     MSG msg;
-    while (::GetMessageW(&msg, nullptr, 0, 0) > 0)
+    bool running = true;
+    while (running)
     {
-        if (msg.message == WM_INPUT)
-            DrainRawInputQueue();
-    
-        ::DispatchMessageW(&msg);
+        // Вместо WaitMessage():
+        ::MsgWaitForMultipleObjectsEx(0, nullptr, 1, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+
+        while (running &&
+            (::PeekMessageW(&msg, nullptr, 0, WM_INPUT - 1, PM_REMOVE) ||
+                ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, 0xFFFF, PM_REMOVE)))
+        {
+            switch (msg.message)
+            {
+            case WM_INPUT_DEVICE_CHANGE:
+            {
+                CHECK(msg.wParam == GIDC_ARRIVAL || msg.wParam == GIDC_REMOVAL);
+                HANDLE deviceHandle = reinterpret_cast<HANDLE>(msg.lParam);
+
+                switch (msg.wParam)
+                {
+                case GIDC_ARRIVAL:
+                    OnDeviceConnected(deviceHandle);
+                    break;
+                case GIDC_REMOVAL:
+                    OnDeviceDisconnected(deviceHandle);
+                    break;
+                }
+
+                continue;
+            }
+
+            case WM_INPUTLANGCHANGE:
+            {
+                HKL newLayout = reinterpret_cast<HKL>(msg.lParam);
+                for (auto& [handle, device] : m_Devices)
+                    device->OnInputLanguageChanged(newLayout);
+
+                continue;
+            }
+
+            case WM_QUIT:
+            {
+                running = false;
+                continue;
+            }
+
+            }
+
+            ::DispatchMessageW(&msg);
+        }
+
+        if (running)
+        {
+            for (;;)
+            {
+                RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
+                UINT bufferSize = m_InputBufferSize;
+                UINT count = ::GetRawInputBuffer(input, &bufferSize, sizeof(RAWINPUTHEADER));
+
+                if (count == 0)
+                    break;
+
+                if (count == static_cast<UINT>(-1))
+                {
+                    // Buffer too small — grow and retry.
+                    bufferSize = std::max(bufferSize, m_InputBufferSize * 2);
+                    m_InputBuffer = AllocAligned(bufferSize, RAW_BUF_ALIGN);
+                    m_InputBufferSize = bufferSize;
+                    continue;
+                }
+
+                if (count > 1)
+                    DBGPRINT("DrainRawInputQueue: got %u extra buffered events", count);
+
+                for (UINT i = 0; i < count; ++i, input = NEXTRAWINPUTBLOCK(input))
+                {
+                    OnInput(input);
+                }
+                // Do not break — there may be more events in the queue.
+            }
+        }
     }
 
     CHECK(Unregister());
@@ -267,77 +226,38 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     ::UnregisterClassW(RAW_SINK_CLASS, hInstance);
 }
 
-bool RawInputDeviceManager::RawInputManagerImpl::Register()
+bool RawInputDeviceManager::RawInputManagerImpl::SetDeviceEnabled(USHORT usUsage, bool enabled)
 {
-    RAWINPUTDEVICE rid[] =
+    RAWINPUTDEVICE rid =
     {
-        {
-            HID_USAGE_PAGE_GENERIC,
-            0,
-            RIDEV_DEVNOTIFY | RIDEV_INPUTSINK | RIDEV_PAGEONLY,
-            m_hWnd
-        }
+        HID_USAGE_PAGE_GENERIC,
+        usUsage,
+        enabled ? DWORD(RIDEV_DEVNOTIFY | RIDEV_INPUTSINK)
+                : RIDEV_REMOVE,
+        enabled ? m_hWnd : nullptr
     };
 
-    return ::RegisterRawInputDevices(rid, static_cast<UINT>(std::size(rid)), sizeof(RAWINPUTDEVICE));
+    return ::RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
+}
+
+bool RawInputDeviceManager::RawInputManagerImpl::Register()
+{
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_MOUSE, true));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_KEYBOARD, true));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_GAMEPAD, true));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_JOYSTICK, true));
+
+    return true;
 }
 
 bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
 {
-    RAWINPUTDEVICE rid[] =
-    {
-        {
-            HID_USAGE_PAGE_GENERIC,
-            0,
-            RIDEV_REMOVE | RIDEV_PAGEONLY,
-            0
-        }
-    };
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_MOUSE, false));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_KEYBOARD, false));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_GAMEPAD, false));
+    CHECK(SetDeviceEnabled(HID_USAGE_GENERIC_JOYSTICK, false));
 
-    return ::RegisterRawInputDevices(rid, static_cast<UINT>(std::size(rid)), sizeof(RAWINPUTDEVICE));
-}
-
-void RawInputDeviceManager::RawInputManagerImpl::DrainRawInputQueue()
-{
-    for (;;)
-    {
-        UINT cbBuffer = m_InputBufferSize;
-
-        UINT count = ::GetRawInputBuffer(
-            reinterpret_cast<RAWINPUT*>(m_InputBuffer.get()),
-            &cbBuffer,
-            sizeof(RAWINPUTHEADER));
-
-        if (count == 0)
-            break; // queue empty
-
-        if (count == static_cast<UINT>(-1))
-        {
-            // Buffer too small for the first element. cbBuffer now holds the
-            // required size as seen by the kernel. On WOW64 this is already
-            // the 64-bit-padded size; apply the factor again to amortise
-            // future growth.
-            UINT needed = cbBuffer * RAW_WOW64_FACTOR;
-            if (needed < m_InputBufferSize * 2)
-                needed = m_InputBufferSize * 2;
-
-            m_InputBuffer     = AllocAligned(needed, RAW_BUF_ALIGN);
-            m_InputBufferSize = needed;
-            continue;
-        }
-
-        // NEXTRAWINPUTBLOCK is the only correct way to advance the pointer.
-        // The macro reads dwSize from the current header (already set to the
-        // kernel-side padded size) and applies RAWINPUT_ALIGN. Manual pointer
-        // arithmetic breaks on WOW64.
-        RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
-        for (UINT i = 0; i < count; ++i)
-        {
-            OnInput(input);
-            input = NEXTRAWINPUTBLOCK(input);
-        }
-        // Do not break — there may be more events in the queue.
-    }
+    return true;
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnDeviceConnected(HANDLE deviceHandle)
@@ -367,7 +287,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnDeviceConnected(HANDLE device
     DumpInfo(emplace_result.first->second.get());
 }
 
-void RawInputDeviceManager::RawInputManagerImpl::OnDeviceDisonnected(HANDLE deviceHandle)
+void RawInputDeviceManager::RawInputManagerImpl::OnDeviceDisconnected(HANDLE deviceHandle)
 {
     DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
     CHECK(m_Devices.erase(deviceHandle));
@@ -400,18 +320,17 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
         current.insert(d.hDevice);
 
     // Remove devices that are no longer present.
-    for (auto it = m_Devices.begin(); it != m_Devices.end(); )
-    {
+    std::vector<HANDLE> toRemove;
+    for (auto it = m_Devices.begin(); it != m_Devices.end(); ++it)
         if (!current.count(it->first))
-        {
-            HANDLE handle = it->first;
-            it = m_Devices.erase(it);
-            OnDeviceDisonnected(handle);
-        }
-        else
-        {
-            ++it;
-        }
+            toRemove.push_back(it->first);
+
+    for (HANDLE h : toRemove)
+    {
+        auto it = m_Devices.find(h);
+        auto handle = std::move(it->first);
+        m_Devices.erase(it);
+        OnDeviceDisconnected(handle);
     }
 
     // Add devices that are not yet tracked.
@@ -441,90 +360,7 @@ void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
         DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", input->header.hDevice, input->header.dwType);
     }
 
-    if (input->header.dwType == RIM_TYPEKEYBOARD)
-    {
-        OnKeyboardEvent(input->data.keyboard);
-    }
-}
-
-void RawInputDeviceManager::RawInputManagerImpl::OnKeyboardEvent(const RAWKEYBOARD& keyboard)
-{
-    if (keyboard.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE || keyboard.VKey >= 0xFF)
-        return;
-
-    const bool isKeyDown = !(keyboard.Flags & RI_KEY_BREAK);
-    const bool isE0      =  (keyboard.Flags & RI_KEY_E0) != 0;
-    const UINT scanCode  = keyboard.MakeCode | (isE0 ? 0x100 : 0);
-
-    const auto updateKeyState = [&](UINT vk)
-    {
-        if (isKeyDown) m_KeyState[vk] |= 0x80;
-        else           m_KeyState[vk] &= ~0x80;
-
-        if (UINT vkEx = ::MapVirtualKeyW(MAKEWORD(keyboard.MakeCode, isE0 ? 0xe0 : 0x00), MAPVK_VSC_TO_VK_EX))
-        {
-            if (isKeyDown) m_KeyState[vkEx] |= 0x80;
-            else           m_KeyState[vkEx] &= ~0x80;
-        }
-    };
-
-    const auto emitUtf16Sequence = [&](const wchar_t* seq, int len,
-                                       const std::function<void(char32_t)>& callback)
-    {
-        if (!callback)
-            return;
-
-        for (int i = 0; i < len; )
-        {
-            wchar_t wc = seq[i++];
-            if (IS_HIGH_SURROGATE(wc)) { m_PendingSurrogate = wc; continue; }
-
-            char32_t cp;
-            if (IS_LOW_SURROGATE(wc) && m_PendingSurrogate)
-            {
-                cp = 0x10000u
-                    + ((static_cast<char32_t>(m_PendingSurrogate) - 0xD800u) << 10)
-                    +  (static_cast<char32_t>(wc)                 - 0xDC00u);
-            }
-            else
-            {
-                cp = static_cast<char32_t>(wc);
-            }
-            m_PendingSurrogate = 0;
-            callback(cp);
-        }
-    };
-
-    const auto callToUnicodeEx = [&]
-    {
-        wchar_t buf[16] = {};
-        const int result = ::ToUnicodeEx(
-            keyboard.VKey, scanCode, m_KeyState,
-            buf, static_cast<int>(std::size(buf)), 0,
-            ::GetKeyboardLayout(m_ParentThreadId));
-
-        if (result > 0) emitUtf16Sequence(buf,  result, OnCharacter);
-        if (result < 0) emitUtf16Sequence(buf, -result, OnDeadKey);
-    };
-
-    if (!isKeyDown) callToUnicodeEx();  // до updateKeyState: Alt+Numpad
-
-    updateKeyState(keyboard.VKey);
-
-    switch (keyboard.VKey)
-    {
-    case VK_CAPITAL: case VK_NUMLOCK: case VK_SCROLL:
-        if (isKeyDown) m_KeyState[keyboard.VKey] ^= 0x01;
-        break;
-
-    case VK_SHIFT:   case VK_LSHIFT:   case VK_RSHIFT:
-    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL:
-    case VK_MENU:    case VK_LMENU:    case VK_RMENU:
-        break;
-
-    default:
-        if (isKeyDown) callToUnicodeEx();  // после updateKeyState: обычные клавиши
-    }
+    //Sleep(10);
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
@@ -556,13 +392,7 @@ RawInputDevice* RawInputDeviceManager::RawInputManagerImpl::FindDevice(DWORD dev
     auto it = std::find_if(m_Devices.begin(), m_Devices.end(),
         [deviceType](const decltype(m_Devices)::const_reference& device)
         {
-            switch (deviceType)
-            {
-            case RIM_TYPEKEYBOARD: return dynamic_cast<RawInputDeviceKeyboard*>(device.second.get()) != nullptr;
-            case RIM_TYPEMOUSE:    return dynamic_cast<RawInputDeviceMouse*>   (device.second.get()) != nullptr;
-            case RIM_TYPEHID:      return dynamic_cast<RawInputDeviceHid*>     (device.second.get()) != nullptr;
-            default:               return false;
-            }
+            return device.second->GetType() == deviceType;
         });
 
     if (it == m_Devices.end())
@@ -578,10 +408,19 @@ RawInputDeviceManager::RawInputDeviceManager()
 
 RawInputDeviceManager::~RawInputDeviceManager() = default;
 
-std::vector<RawInputDevice*> RawInputDeviceManager::GetRawInputDevices() const
+void RawInputDeviceManager::OnInputLanguageChanged(HKL hkl)
 {
-    std::vector<RawInputDevice*> devices;
+    if (m_RawInputManagerImpl->m_hWnd)
+    {
+        ::PostMessageW(m_RawInputManagerImpl->m_hWnd, WM_INPUTLANGCHANGE, 0, reinterpret_cast<LPARAM>(hkl));
+    }
+}
+
+std::vector<std::shared_ptr<RawInputDevice>> RawInputDeviceManager::GetRawInputDevices() const
+{
+    std::vector<std::shared_ptr<RawInputDevice>> devices;
     for (auto& dev : m_RawInputManagerImpl->m_Devices)
         devices.emplace_back(dev.second.get());
+
     return devices;
 }

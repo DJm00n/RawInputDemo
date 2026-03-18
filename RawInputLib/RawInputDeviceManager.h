@@ -11,7 +11,11 @@ public:
     RawInputDeviceManager(RawInputDeviceManager&) = delete;
     void operator=(RawInputDeviceManager) = delete;
 
-    std::vector<RawInputDevice*> GetRawInputDevices() const;
+    // Call from your main WndProc when WM_INPUTLANGCHANGE is received.
+    // hkl — new keyboard layout handle from lParam.
+    void OnInputLanguageChanged(HKL hkl);
+
+    std::vector<std::shared_ptr<RawInputDevice>> GetRawInputDevices() const;
 
 private:
     struct RawInputManagerImpl;

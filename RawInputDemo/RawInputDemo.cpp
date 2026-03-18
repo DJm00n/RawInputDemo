@@ -40,6 +40,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // TODO: Place code here.
 
+
     // Initialize global strings
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_RAWINPUTDEMO, szWindowClass, MAX_LOADSTRING);
@@ -176,9 +177,11 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 {
     DBGPRINT("WM_INPUTLANGCHANGE: hkl=0x%08x", hkl);
 
-    std::string layoutDescription = GetLayoutDescription(hkl);
+    rawDeviceManager.OnInputLanguageChanged(hkl);
 
-    std::wstring layoutProfileId = GetLayoutProfileId(hkl);
+    /*std::string layoutDescription = GetLayoutDescription(hkl);
+
+    std::string layoutProfileId = GetLayoutProfileId(hkl);
     LAYOUTORTIPPROFILE layoutProfile;
     GetLayoutProfile(layoutProfileId, &layoutProfile);
     std::string layoutDescription2 = GetLayoutProfileDescription(layoutProfileId);
@@ -187,9 +190,9 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 
     std::string layoutDescription4 = GetLayoutDescriptionWinRT(hkl);
 
-    DBGPRINT("Switched to `%s` input language", layoutDescription3.c_str());
+    DBGPRINT("Switched to `%s` input language", layoutDescription4.c_str());
 
-    std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();
+    std::wstring defaultLayoutProfileId = GetDefaultLayoutProfileId();*/
 
     UpdateKeyNames();
 
@@ -205,9 +208,9 @@ BOOL WndProc_OnInputLangChange(HWND hwnd, USHORT gdiCodePage, HKL hkl)
 
 void OnChar(char32_t ch)
 {
-    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf32conv;
+    /*std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf32conv;
     std::string utf8ch = utf32conv.to_bytes(ch);
-    DBGPRINT("WM_CHAR: %s\n", GetUnicodeCharacterNames(utf8ch).c_str());
+    DBGPRINT("WM_CHAR: %s\n", GetUnicodeCharacterNames(utf8ch).c_str());*/
 }
 
 void WndProc_OnChar(HWND hwnd, WCHAR c, int cRepeat)
@@ -250,7 +253,7 @@ void WndProc_OnChar(HWND hwnd, WCHAR c, int cRepeat)
 
 void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
 {
-    uint16_t scanCode = LOBYTE(flags);
+    /*uint16_t scanCode = LOBYTE(flags);
     if (scanCode != 0)
     {
         if ((flags & KF_EXTENDED) == KF_EXTENDED)
@@ -277,12 +280,12 @@ void WndProc_OnKeydown(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
     DBGPRINT("WM_KEYDOWN: vk=%s, sc=0x%04x, ch=`%s`, keyName=`%s`\n",
         VkToString(vk).c_str(),
         scanCode,
-        GetUnicodeCharacterNames(ch).c_str(), name.c_str());
+        GetUnicodeCharacterNames(ch).c_str(), name.c_str());*/
 }
 
 void WndProc_OnKeyup(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
 {
-    uint16_t scanCode = LOBYTE(flags);
+    /*uint16_t scanCode = LOBYTE(flags);
     if (scanCode != 0)
     {
         if ((flags & KF_EXTENDED) == KF_EXTENDED)
@@ -294,7 +297,7 @@ void WndProc_OnKeyup(HWND hwnd, UINT vk, BOOL fDown, int cRepeat, UINT flags)
         scanCode = LOWORD(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX));
     }
 
-    int a = 666;
+    int a = 666;*/
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)

@@ -121,42 +121,31 @@ int main()
 
     std::cout << "RawInputDeviceManager is working!\n";
 
-    std::vector<RawInputDevice*> devices;
-
+    std::vector<std::shared_ptr<RawInputDevice>> devices;
 
     while (true)
     {
-        std::vector<RawInputDevice*> enumeratedDevices;
-        for (RawInputDevice* device : rawDeviceManager.GetRawInputDevices())
-        {
-            auto deviceIt = std::find(std::begin(devices), std::end(devices), device);
-            if (deviceIt == devices.end())
-            {
-                // new device
-                DumpDeviceInfo(device);
+        std::vector<std::shared_ptr<RawInputDevice>> enumeratedDevices = rawDeviceManager.GetRawInputDevices();
 
+        // Find new devices
+        for (const auto& device : enumeratedDevices)
+        {
+            if (std::find(devices.begin(), devices.end(), device) == devices.end())
+            {
+                DumpDeviceInfo(device.get());
                 devices.emplace_back(device);
             }
-
-            enumeratedDevices.emplace_back(device);
         }
 
-
-        // Clear out old devices that weren't part of this enumeration pass.
-        auto deviceIt = devices.begin();
-        while (deviceIt != devices.end())
-        {
-            if (std::find(std::begin(enumeratedDevices), std::end(enumeratedDevices), *deviceIt) == enumeratedDevices.end())
-            {
-                // removed device
-                deviceIt = devices.erase(deviceIt);
-            }
-            else
-            {
-                ++deviceIt;
-            }
-        }
-
+        // Remove devices that are no longer present
+        devices.erase(
+            std::remove_if(devices.begin(), devices.end(),
+                [&enumeratedDevices](const std::shared_ptr<RawInputDevice>& device)
+                {
+                    return std::find(enumeratedDevices.begin(), enumeratedDevices.end(), device)
+                        == enumeratedDevices.end();
+                }),
+            devices.end());
     }
 
 

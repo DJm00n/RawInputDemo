@@ -11,6 +11,9 @@
 
 #include <hidsdi.h>
 #include <hidpi.h>
+#include <span>
+
+#include <combaseapi.h>
 
 using namespace std;
 
@@ -120,96 +123,179 @@ namespace stringutils
     }
 }
 
-// Undocumented API that is used in Windows "Character Map" tool
-std::string GetUNameWrapper(char32_t codePoint)
+static std::string GetUnicodeName(char32_t cp)
 {
-    if (codePoint > 0xFFFF)
-    {
-        return "Supplementary Multilingual Plane";
-    }
+    using ICUFn = int32_t(*)(char32_t, int, char*, int32_t, int*);
+    using LegacyFn = int(WINAPI*)(WORD, LPWSTR);
 
-    // https://github.com/reactos/reactos/tree/master/dll/win32/getuname
-    typedef int(WINAPI* GetUNameFunc)(WORD wCharCode, LPWSTR lpBuf);
-    static GetUNameFunc pfnGetUName = reinterpret_cast<GetUNameFunc>(::GetProcAddress(::LoadLibraryW(L"getuname.dll"), "GetUName"));
-
-    if (!pfnGetUName)
-        return {};
-
-    const WORD character = static_cast<WORD>(codePoint);
-    std::array<wchar_t, 256> buffer;
-    int length = pfnGetUName(character, buffer.data());
-
-    return utf8::narrow(buffer.data(), length);
-}
-
-// u_charName() ICU API that comes with Windows since Fall Creators Update (Version 1709 Build 16299)
-// https://docs.microsoft.com/windows/win32/intl/international-components-for-unicode--icu-
-std::string GetUCharNameWrapper(char32_t codePoint)
-{
+    // u_charName() ICU API that comes with Windows since Fall Creators Update (Version 1709 Build 16299)
+    // https://docs.microsoft.com/windows/win32/intl/international-components-for-unicode--icu-
     // https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uchar_8h.html#a2d90141097af5ad4b6c37189e7984932
-    typedef int32_t(*u_charNameFunc)(char32_t code, int nameChoice, char* buffer, int32_t bufferLength, int* pErrorCode);
-    static u_charNameFunc pfnU_charName = reinterpret_cast<u_charNameFunc>(::GetProcAddress(::LoadLibraryW(L"icuuc.dll"), "u_charName"));
+    static ICUFn icu = [] {
+        if (auto h = LoadLibraryW(L"icuuc.dll"))
+            return reinterpret_cast<ICUFn>(GetProcAddress(h, "u_charName"));
+        return (ICUFn)nullptr;
+        }();
 
-    if (!pfnU_charName)
-        return GetUNameWrapper(codePoint);
+    // Undocumented API that is used in Windows "Character Map" tool
+    // https://github.com/reactos/reactos/tree/master/dll/win32/getuname
+    static LegacyFn legacy = [] {
+        if (auto h = LoadLibraryW(L"getuname.dll"))
+            return reinterpret_cast<LegacyFn>(GetProcAddress(h, "GetUName"));
+        return (LegacyFn)nullptr;
+        }();
 
-    int errorCode = 0;
-    std::array<char, 512> buffer;
-    int32_t length = pfnU_charName(codePoint, 2/*U_EXTENDED_CHAR_NAME*/, buffer.data(), static_cast<int32_t>(buffer.size() - 1), &errorCode);
-
-    if (errorCode != 0)
-        return {};
-
-    return std::string(buffer.data(), length);
-}
-
-// Replace invisible code point with code point that is visible
-char32_t ReplaceInvisible(char32_t codePoint)
-{
-    if (codePoint < 0xFFFF && !std::iswgraph(static_cast<wchar_t>(codePoint)))
+    if (icu)
     {
-        if (codePoint <= 0x21)
-            codePoint += 0x2400; // U+2400 Control Pictures https://www.unicode.org/charts/PDF/U2400.pdf
-        else
-            codePoint = 0xFFFD; // U+308 Replacement Character
+        std::array<char, 512> buf{};
+        int err = 0;
+
+        int32_t len = icu(cp, 2 /*U_EXTENDED_CHAR_NAME*/, buf.data(),
+            static_cast<int32_t>(buf.size() - 1), &err);
+
+        if (!err)
+            return std::string(buf.data(), len);
     }
 
-    return codePoint;
-}
-
-std::string GetUnicodeCharacterNames(std::string string)
-{
-    // UTF-8 <=> UTF-32 converter
-    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf32conv;
-
-    // UTF-8 => UTF-32
-    std::u32string utf32string = utf32conv.from_bytes(string);
-
-    std::string characterNames;
-    characterNames.reserve(35 * utf32string.size());
-
-    for (const char32_t& codePoint : utf32string)
+    if (legacy && cp <= 0xFFFF)
     {
-        if (!characterNames.empty())
-            characterNames.append(", ");
+        std::array<wchar_t, 256> buf{};
+        int len = legacy(static_cast<WORD>(cp), buf.data());
 
-        char32_t visibleCodePoint = ReplaceInvisible(codePoint);
-        std::string charName = GetUCharNameWrapper(codePoint);
-
-        // UTF-32 => UTF-8
-        std::string utf8codePoint = utf32conv.to_bytes(&visibleCodePoint, &visibleCodePoint + 1);
-        characterNames.append(std::format("{} <U+{:X} {}>", utf8codePoint, static_cast<uint32_t>(codePoint), charName));
+        return utf8::narrow(buf.data(), len);
     }
 
-    return characterNames;
+    if (cp > 0xFFFF)
+        return "Supplementary Multilingual Plane";
+
+    return {};
 }
 
-std::wstring GetLayoutProfileId(HKL hkl)
-{
-    wchar_t layoutProfile[MAX_PATH];
-    std::swprintf(layoutProfile, MAX_PATH, L"%04x:%hs", LOWORD(hkl), GetKlidFromHkl(hkl).c_str());
 
-    return layoutProfile;
+bool IsGraphical(char32_t cp)
+{
+    wchar_t buf[2];
+    int len = 0;
+
+    if (cp <= 0xFFFF)
+    {
+        buf[0] = static_cast<wchar_t>(cp);
+        len = 1;
+    }
+    else
+    {
+        cp -= 0x10000;
+        buf[0] = static_cast<wchar_t>(0xD800 + (cp >> 10));
+        buf[1] = static_cast<wchar_t>(0xDC00 + (cp & 0x3FF));
+        len = 2;
+    }
+
+    WORD type = 0;
+
+    if (!GetStringTypeW(CT_CTYPE1, buf, len, &type))
+        return false;
+
+    return !(type & C1_CNTRL);
+}
+
+char32_t MakeVisibleCodepoint(char32_t cp)
+{
+    // U+2400 Control Pictures https://www.unicode.org/charts/PDF/U2400.pdf
+    // U+308 Replacement Character
+    if (cp < 0xFFFF && !IsGraphical(cp))
+        return cp <= 0x21 ? cp + 0x2400 : 0xFFFD;
+
+    return cp;
+}
+
+static char32_t DecodeUtf16(const wchar_t* s, size_t& i, size_t len)
+{
+    wchar_t high = s[i];
+
+    if (IS_HIGH_SURROGATE(high) &&
+        i + 1 < len &&
+        IS_LOW_SURROGATE(s[i + 1]))
+    {
+        wchar_t low = s[++i];
+
+        return ((char32_t(high) - 0xD800) << 10) +
+            ((char32_t(low) - 0xDC00)) +
+            0x10000;
+    }
+
+    return high;
+}
+
+std::string Utf32ToUtf8(char32_t cp)
+{
+	char buf[4];
+    int len = 0;
+
+    if (cp <= 0x7F)
+	{
+		buf[len++] = static_cast<char>(cp);
+	}
+	else if (cp <= 0x7FF)
+	{
+		buf[len++] = static_cast<char>(0xC0 | (cp >> 6));
+        buf[len++] = static_cast<char>(0x80 | (cp & 0x3F));
+	}
+	else if (cp <= 0xFFFF)
+    {
+        buf[len++] = static_cast<char>(0xE0 | (cp >> 12));
+        buf[len++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        buf[len++] = static_cast<char>(0x80 | (cp & 0x3F));
+    }
+	else
+    {
+        buf[len++] = static_cast<char>(0xF0 | (cp >> 18));
+        buf[len++] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        buf[len++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        buf[len++] = static_cast<char>(0x80 | (cp & 0x3F));
+    }
+
+    return std::string(buf, len);
+}
+
+std::string GetUnicodeCharacterNames(const std::string& utf8)
+{
+    std::wstring wstr = utf8::widen(utf8);
+
+    std::string result;
+    result.reserve(35 * wstr.size());
+
+    for (size_t i = 0; i < wstr.size(); ++i)
+    {
+        char32_t cp = DecodeUtf16(wstr.data(), i, wstr.size());
+        std::string glyph = Utf32ToUtf8(MakeVisibleCodepoint(cp));
+        std::string name = GetUnicodeName(cp);
+
+        if (!result.empty())
+            result += ", ";
+
+        result += std::format("{} <U+{:X} {}>", glyph, (uint32_t)cp, name);
+    }
+
+    return result;
+}
+
+std::string GetLayoutProfileId(HKL hkl)
+{
+    const LANGID langId = LOWORD(hkl);
+
+    for (const auto& layout : EnumLayoutProfiles())
+    {
+        if ((layout.dwProfileType & LOTP_INPUTPROCESSOR) != LOTP_INPUTPROCESSOR)
+            continue;
+
+        if ((layout.dwFlags & LOT_DISABLED) == LOT_DISABLED)
+            continue;
+
+        if (layout.langid == langId)
+            return utf8::narrow(layout.szId);
+    }
+
+    return std::format("{:04x}:{}", langId, GetKlidFromHkl(hkl));
 }
 
 std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles()
@@ -254,15 +340,15 @@ std::wstring GetDefaultLayoutProfileId()
     return defaultLayoutProfileId;
 }
 
-bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* outProfile)
+bool GetLayoutProfile(const std::string& layoutProfileId, LAYOUTORTIPPROFILE* outProfile)
 {
+    std::wstring tmp = utf8::widen(layoutProfileId);
+
     std::vector<LAYOUTORTIPPROFILE> layouts = EnumLayoutProfiles();
     for (const auto& layout : layouts)
     {
-        if (stringutils::ci_wstring(layout.szId).compare(layoutProfileId.c_str()) != 0)
+        if (stringutils::ci_wstring(layout.szId).compare(tmp.c_str()) != 0)
             continue;
-
-        CHECK(layout.dwProfileType & LOTP_KEYBOARDLAYOUT);
 
         std::memcpy(outProfile, &layout, sizeof(layout));
 
@@ -272,8 +358,10 @@ bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* o
     return false;
 }
 
-std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId)
+std::string GetLayoutProfileDescription(const std::string& layoutProfileId)
 {
+    std::wstring tmp = utf8::widen(layoutProfileId);
+
     // http://archives.miloush.net/michkap/archive/2008/09/29/8968315.html
     typedef HRESULT(WINAPI* GetLayoutDescriptionFunc)(LPCWSTR szId, LPWSTR pszName, LPUINT uBufLength, DWORD dwFlags);
     static GetLayoutDescriptionFunc GetLayoutDescription = reinterpret_cast<GetLayoutDescriptionFunc>(::GetProcAddress(::LoadLibraryW(L"input.dll"), "GetLayoutDescription"));
@@ -283,12 +371,12 @@ std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId)
 
     UINT length = 0;
 
-    CHECK(SUCCEEDED(GetLayoutDescription(layoutProfileId.c_str(), nullptr, &length, 0)));
+    CHECK(SUCCEEDED(GetLayoutDescription(tmp.c_str(), nullptr, &length, 0)));
 
     std::wstring description;
     description.resize(length);
 
-    CHECK(SUCCEEDED(GetLayoutDescription(layoutProfileId.c_str(), description.data(), &length, 0)));
+    CHECK(SUCCEEDED(GetLayoutDescription(tmp.c_str(), description.data(), &length, 0)));
 
     return utf8::narrow(description);
 }
@@ -306,169 +394,215 @@ std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType)
     return utf8::narrow(buffer.get());
 }
 
-BOOL Bcp47FromHkl(HKL hkl, LPWSTR pszDest, DWORD cchDest)
+std::string GetBcp47FromHkl(HKL hkl)
 {
-    constexpr wchar_t userProfileRegPath[] = L"Control Panel\\International\\User Profile";
+    constexpr wchar_t regPath[] = L"Control Panel\\International\\User Profile";
     constexpr wchar_t regLanguages[] = L"Languages";
     constexpr wchar_t regTransientLangId[] = L"TransientLangId";
 
-    LANGID langId = LOWORD(HandleToUlong(hkl));
+    LANGID langId = LOWORD(HandleToULong(hkl));
 
-    memset(pszDest, 0, sizeof(WCHAR) * cchDest);
-
-    if (langId == LOCALE_TRANSIENT_KEYBOARD1 ||
-        langId == LOCALE_TRANSIENT_KEYBOARD2 ||
-        langId == LOCALE_TRANSIENT_KEYBOARD3 ||
-        langId == LOCALE_TRANSIENT_KEYBOARD4)
+    // Try transient keyboard mapping
+    if (langId >= LOCALE_TRANSIENT_KEYBOARD1 && langId <= LOCALE_TRANSIENT_KEYBOARD4)
     {
-        HKEY key;
-        LPWSTR buffer;
-        DWORD size = 0;
-
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, userProfileRegPath, 0, KEY_READ, &key) != ERROR_SUCCESS)
-            return FALSE;
-
-        if (RegGetValueW(key, NULL, regLanguages, RRF_RT_REG_MULTI_SZ, NULL, NULL, &size) != ERROR_SUCCESS)
-            return FALSE;
-
-        buffer = (LPWSTR)malloc(size);
-
-        if (RegGetValueW(key, NULL, regLanguages, RRF_RT_REG_MULTI_SZ, NULL, buffer, &size) != ERROR_SUCCESS)
+        HKEY key{};
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, regPath, 0, KEY_READ, &key) == ERROR_SUCCESS)
         {
-            free(buffer);
-            return FALSE;
+            DWORD size = 0;
+            if (RegGetValueW(key, nullptr, regLanguages, RRF_RT_REG_MULTI_SZ, nullptr, nullptr, &size) == ERROR_SUCCESS)
+            {
+                std::vector<wchar_t> buffer(size / sizeof(wchar_t));
+
+                if (RegGetValueW(key, nullptr, regLanguages, RRF_RT_REG_MULTI_SZ, nullptr, buffer.data(), &size) == ERROR_SUCCESS)
+                {
+                    for (wchar_t* lang = buffer.data(); *lang; lang += wcslen(lang) + 1)
+                    {
+                        DWORD regLangId{};
+                        DWORD regSize = sizeof(regLangId);
+
+                        if (RegGetValueW(key, lang, regTransientLangId, RRF_RT_REG_DWORD, nullptr, &regLangId, &regSize) == ERROR_SUCCESS &&
+                            regLangId == langId)
+                        {
+                            RegCloseKey(key);
+                            return utf8::narrow(lang);
+                        }
+                    }
+                }
+            }
+
+            RegCloseKey(key);
         }
-
-        for (LPWSTR lang = buffer; *lang; lang += wcsnlen_s(lang, (size / sizeof(WCHAR)) - (lang - buffer)) + 1)
-        {
-            DWORD regLangId = 0;
-            DWORD regLangIdSize = sizeof(regLangId);
-            if (RegGetValueW(key, lang, regTransientLangId, RRF_RT_REG_DWORD, NULL, &regLangId, &regLangIdSize) != ERROR_SUCCESS)
-                continue;
-
-            if (langId != regLangId)
-                continue;
-
-            wcscpy_s(pszDest, cchDest, lang);
-            break;
-        }
-
-        free(buffer);
-
-        if (RegCloseKey(key) != ERROR_SUCCESS)
-            return FALSE;
     }
 
-    if (wcsnlen_s(pszDest, cchDest) == 0)
-    {
-        LCIDToLocaleName(MAKELCID(langId, SORT_DEFAULT), pszDest, cchDest, 0);
-    }
+    // Fallback to LCID → locale name
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
 
-    return wcsnlen_s(pszDest, cchDest) != 0;
+    if (LCIDToLocaleName(MAKELCID(langId, SORT_DEFAULT), locale, LOCALE_NAME_MAX_LENGTH, 0) > 0)
+        return utf8::narrow(locale);
+
+    return {};
 }
 
-std::string GetBcp47FromHkl(HKL hkl)
-{
-    wchar_t language[LOCALE_NAME_MAX_LENGTH] = { 0 };
-    Bcp47FromHkl(hkl, language, (DWORD)std::size(language));
-
-    return utf8::narrow(language);
-}
-
-std::string GetKlidFromHkl(HKL hkl)
+static DWORD FindKeyboardLayout(DWORD specialId)
 {
     constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
     constexpr wchar_t regLayoutId[] = L"Layout Id";
 
-    wchar_t klid[KL_NAMELENGTH] = { 0 };
+    HKEY key{};
+    if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyboardLayoutsRegPath, 0, KEY_READ, &key) != ERROR_SUCCESS)
+        return specialId;
 
-    WORD device = HIWORD(hkl);
+    DWORD index = 0;
+    wchar_t keyName[KL_NAMELENGTH];
+    DWORD keyNameLen = std::size(keyName);
 
-    if ((device & 0xf000) == 0xf000) // `Device Handle` contains `Layout ID`
+    while (::RegEnumKeyExW(key, index, keyName, &keyNameLen, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
     {
-        WORD layoutId = device & 0x0fff;
+        wchar_t layoutIdBuffer[32]{};
+        DWORD layoutIdBufferSize = sizeof(layoutIdBuffer);
 
-        HKEY key;
-        CHECK_EQ(::RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyboardLayoutsRegPath, 0, KEY_READ, &key), ERROR_SUCCESS);
-
-        DWORD index = 0;
-        wchar_t buffer[KL_NAMELENGTH];
-        DWORD len = (DWORD)std::size(buffer);
-        while (::RegEnumKeyExW(key, index, buffer, &len, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
+        if (::RegGetValueW(key, keyName, regLayoutId, RRF_RT_REG_SZ, nullptr,
+            layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
         {
-            wchar_t layoutIdBuffer[MAX_PATH] = {};
-            DWORD layoutIdBufferSize = sizeof(layoutIdBuffer);
-            if (::RegGetValueW(key, buffer, regLayoutId, RRF_RT_REG_SZ, nullptr, layoutIdBuffer, &layoutIdBufferSize) == ERROR_SUCCESS)
+            DWORD layoutId = std::wcstoul(layoutIdBuffer, nullptr, 16);
+            if (layoutId == specialId)
             {
-                if (layoutId == std::stoul(layoutIdBuffer, nullptr, 16))
-                {
-                    _wcsupr(buffer);
-                    wcscpy(klid, buffer);
-                    //DBGPRINT("Found KLID %ls by layoutId=0x%04x", klid, layoutId);
-                    break;
-                }
+                ::RegCloseKey(key);
+                return std::wcstoul(keyName, nullptr, 16);
             }
-            len = (DWORD)std::size(buffer);
-            ++index;
         }
 
-        CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
+        keyNameLen = std::size(keyName);
+        ++index;
     }
-    else
-    {
-        // Use input language only if keyboard layout language is not available. This
-        // is crucial in cases when keyboard is installed more than once or under
-        // different languages. For example when French keyboard is installed under US
-        // input language we need to return French keyboard identifier.
-        if (device == 0)
-        {
-            device = LOWORD(hkl);
-        }
 
-        std::swprintf(klid, std::size(klid), L"%08X", device);
-        //DBGPRINT("Found KLID %ls by langId=0x%04x", klid, device);
-    }
+    ::RegCloseKey(key);
+    return specialId;
+}
+
+std::string GetKlidFromHkl(HKL hkl)
+{
+    DWORD langId = LOWORD(HandleToULong(hkl));
+    DWORD deviceId = HIWORD(HandleToULong(hkl));
+
+    DWORD layoutId =
+        (deviceId & 0xF000) == 0xF000
+        ? FindKeyboardLayout(deviceId & 0x0FFF)
+        : deviceId;
+
+    layoutId = layoutId ? layoutId : langId;
+
+    std::wstring klid = std::format(L"{:08X}", layoutId);
 
     return utf8::narrow(klid);
 }
 
+// Attempts to extract the localized keyboard layout name
+// as it appears in the Windows Regional Settings on the computer.
+// https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
+// It mimics GetLayoutDescription() from input.dll but lacks IME layout support
 std::string GetKeyboardLayoutDisplayName(const std::string& klid)
 {
-    constexpr wchar_t keyboardLayoutsRegPath[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
-    constexpr wchar_t keyboardLayoutDisplayName[] = L"Layout Display Name";
-    constexpr wchar_t keyboardLayoutText[] = L"Layout Text";
+    constexpr wchar_t regBase[] = L"SYSTEM\\CurrentControlSet\\Control\\Keyboard Layouts";
+    constexpr wchar_t valueDisplayName[] = L"Layout Display Name";
+    constexpr wchar_t valueText[] = L"Layout Text";
 
     // http://archives.miloush.net/michkap/archive/2006/05/06/591174.html
     // https://learn.microsoft.com/windows/win32/intl/using-registry-string-redirection#create-resources-for-keyboard-layout-strings
-    HKEY key;
-    const std::wstring fullRegPath = std::wstring(keyboardLayoutsRegPath) + L"\\" + utf8::widen(klid);
-    CHECK_EQ(::RegOpenKeyExW(HKEY_LOCAL_MACHINE, fullRegPath.c_str(), 0, KEY_READ, &key), ERROR_SUCCESS);
+    std::wstring path = std::format(L"{}\\{}", regBase, utf8::widen(klid));
 
-    // https://learn.microsoft.com/windows/win32/intl/locating-redirected-strings#load-a-language-neutral-registry-value
-    std::unique_ptr<wchar_t[]> buffer;
+    HKEY key{};
+    CHECK_EQ(RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, KEY_READ, &key), ERROR_SUCCESS);
+
+    std::wstring result;
+
     DWORD bytes = 0;
-    if (::RegLoadMUIStringW(key, keyboardLayoutDisplayName, nullptr, 0, &bytes, 0, nullptr) == ERROR_MORE_DATA)
+    if (RegLoadMUIStringW(key, valueDisplayName, nullptr, 0, &bytes, 0, nullptr) == ERROR_MORE_DATA)
     {
-        buffer.reset(new wchar_t[bytes / sizeof(wchar_t)]);
-        CHECK_EQ(::RegLoadMUIStringW(key, keyboardLayoutDisplayName, buffer.get(), bytes, &bytes, 0, nullptr), ERROR_SUCCESS);
+        result.resize(bytes / sizeof(wchar_t));
+        CHECK_EQ(RegLoadMUIStringW(key, valueDisplayName, result.data(), bytes, &bytes, 0, nullptr), ERROR_SUCCESS);
+    }
+    else
+    {
+        // Fallback to unlocalized layout name
+        CHECK_EQ(RegGetValueW(key, nullptr, valueText, RRF_RT_REG_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
+        result.resize(bytes / sizeof(wchar_t));
+        CHECK_EQ(RegGetValueW(key, nullptr, valueText, RRF_RT_REG_SZ, nullptr, result.data(), &bytes), ERROR_SUCCESS);
     }
 
-    // Fallback to unlocalized layout name
-    if (buffer.get() == nullptr)
+    RegCloseKey(key);
+
+    return utf8::narrow(result.c_str());
+}
+
+// Attempts to extract the display name of a TSF (Text Services Framework) input profile
+// as it appears in the Windows language settings.
+// It mimics ITfInputProcessorProfiles::GetLanguageProfileDescription but reads directly from registry.
+// https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework
+std::string GetTSFProfileDisplayName(const LCID langId, const CLSID& clsId, const GUID& profileGuid)
+{
+    // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\LanguageProfile\[langid]\{guidProfile}
+    constexpr wchar_t regBase[] = L"SOFTWARE\\Microsoft\\CTF\\TIP";
+    constexpr wchar_t valueDisplayDescription[] = L"Display Description";
+    constexpr wchar_t valueDescription[] = L"Description";
+
+    wchar_t clsIdStr[64] = {};
+    CHECK(StringFromGUID2(clsId, clsIdStr, static_cast<int>(std::size(clsIdStr))) > 0);
+
+    wchar_t profileGuidStr[64] = {};
+    CHECK(StringFromGUID2(profileGuid, profileGuidStr, static_cast<int>(std::size(profileGuidStr))) > 0);
+
+    std::wstring path = std::format(L"{}\\{}\\LanguageProfile\\0x{:08x}\\{}", regBase, clsIdStr, langId, profileGuidStr);
+
+    HKEY key{};
+    CHECK_EQ(RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.c_str(), 0, KEY_READ, &key), ERROR_SUCCESS);
+
+    std::wstring result;
+
+    DWORD bytes = 0;
+    if (RegLoadMUIStringW(key, valueDisplayDescription, nullptr, 0, &bytes, 0, nullptr) == ERROR_MORE_DATA)
     {
-        CHECK_EQ(::RegGetValueW(key, nullptr, keyboardLayoutText, RRF_RT_REG_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
-        buffer.reset(new wchar_t[bytes / sizeof(wchar_t)]);
-        CHECK_EQ(::RegGetValueW(key, nullptr, keyboardLayoutText, RRF_RT_REG_SZ, nullptr, buffer.get(), &bytes), ERROR_SUCCESS);
+        result.resize(bytes / sizeof(wchar_t));
+        CHECK_EQ(RegLoadMUIStringW(key, valueDisplayDescription, result.data(), bytes, &bytes, 0, nullptr), ERROR_SUCCESS);
+    }
+    else
+    {
+        // Fallback to unlocalized profile name
+        CHECK_EQ(RegGetValueW(key, nullptr, valueDescription, RRF_RT_REG_SZ, nullptr, nullptr, &bytes), ERROR_SUCCESS);
+        result.resize(bytes / sizeof(wchar_t));
+        CHECK_EQ(RegGetValueW(key, nullptr, valueDescription, RRF_RT_REG_SZ, nullptr, result.data(), &bytes), ERROR_SUCCESS);
     }
 
-    if (buffer.get() == nullptr)
+    RegCloseKey(key);
+
+    return utf8::narrow(result.c_str());
+}
+
+std::string GetInputProfileDisplayName(const std::string& inputProfile)
+{
+	auto tip = stringutils::split(inputProfile, ':');
+    if (tip.size() != 2)
+        return {};
+
+    if (tip[1].size() == 8)
+		return GetKeyboardLayoutDisplayName(tip[1]);
+    else
     {
-        buffer.reset(new wchar_t[](L"Unknown layout"));
+		std::wstring tsfInputProfile = utf8::widen(tip[1]);
+		constexpr size_t guidLen = 38; // including { and }
+
+        char* langIdStrTmp = nullptr;
+        LANGID langId = static_cast<LANGID>(std::strtoul(tip[0].c_str(), &langIdStrTmp, 16));
+
+        CLSID clsId;
+        CHECK_EQ(::CLSIDFromString(tsfInputProfile.substr(0, guidLen).c_str(), &clsId), NOERROR);
+
+        GUID guid;
+        CHECK_EQ(::IIDFromString(tsfInputProfile.substr(guidLen).c_str(), &guid), S_OK);
+
+
+        return GetTSFProfileDisplayName(langId, clsId, guid);
     }
-
-    CHECK_EQ(::RegCloseKey(key), ERROR_SUCCESS);
-
-    return utf8::narrow(buffer.get());
 }
 
 std::string GetLayoutDescription(HKL hkl)
@@ -476,10 +610,10 @@ std::string GetLayoutDescription(HKL hkl)
     std::string languageTag = GetBcp47FromHkl(hkl);
     std::string layoutLang = GetLocaleInformation(languageTag, LOCALE_SLOCALIZEDDISPLAYNAME);
 
-    std::string layoutId = GetKlidFromHkl(hkl);
-    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+    std::string layoutProfileId = GetLayoutProfileId(hkl);
+    std::string layoutProfileDisplayName = GetInputProfileDisplayName(layoutProfileId);
 
-    return layoutLang + " - " + layoutDisplayName;
+    return std::format("{} - {}", layoutLang, layoutProfileDisplayName);
 }
 
 std::string GetIcuLocaleFromBcp47(const std::string& langTag)
@@ -544,21 +678,24 @@ std::string GetLayoutDescriptionIcu(HKL hkl)
     std::string icuLocaleMin = GetIcuMinLocaleIDFromLocaleID(icuLocale);
     std::string layoutLang = GetIcuLocaleDisplayName(icuLocaleMin);
 
-    std::string layoutId = GetKlidFromHkl(hkl);
-    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+    std::string layoutProfileId = GetLayoutProfileId(hkl);
+    std::string layoutProfileDisplayName = GetInputProfileDisplayName(layoutProfileId);
 
-    return layoutLang + " - " + layoutDisplayName;
+    return std::format("{} - {}", layoutLang, layoutProfileDisplayName);
 }
 
 std::string GetLayoutDescriptionWinRT(HKL hkl)
 {
     std::string languageTag = GetBcp47FromHklWinRT(hkl);
-    std::string layoutLang = GetLanguageNameWinRT(languageTag.c_str());
+    std::string layoutLang = GetLanguageNameWinRT(languageTag);
 
-    std::string layoutId = GetKlidFromHkl(hkl);
-    std::string layoutDisplayName = GetKeyboardLayoutDisplayName(layoutId);
+    std::string layoutProfileId = GetLayoutProfileId(hkl);
+	std::string layoutProfileDisplayName = GetInputProfileDisplayName(layoutProfileId);
 
-    return layoutLang + " - " + layoutDisplayName;
+    std::string abbreviatedName = GetAbbreviatedName2WinRT(languageTag);
+    std::string currentInputLang = GetCurrentInputLanguage();
+
+    return std::format("{} - {}", layoutLang, layoutProfileDisplayName);
 }
 
 std::vector<std::string> EnumInstalledKeyboardLayouts()
@@ -618,14 +755,14 @@ std::string GetStringFromKeyPress(uint16_t scanCode)
     return utf8::narrow(chars.data(), std::abs(count));
 }
 
-std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
+std::unordered_map<uint32_t, uint32_t> GetUsagesToScanCodes()
 {
     // Translate declared usages from HID_USAGE_PAGE_KEYBOARD page
     // See 10. Keyboard/Keypad Page (0x07) in HID Usage Tables 1.4
-    std::map<uint32_t, uint32_t> usagesToScanCodes;
+    std::unordered_map<uint32_t, uint32_t> table;
     constexpr USAGE minKeyboardUsage = 0x01; 
-    constexpr USAGE maxKeboardUsage = 0xe7;
-    for (USAGE usage = minKeyboardUsage; usage <= maxKeboardUsage; ++usage)
+    constexpr USAGE maxKeyboardUsage = 0xe7;
+    for (USAGE usage = minKeyboardUsage; usage <= maxKeyboardUsage; ++usage)
     {
         HIDP_KEYBOARD_MODIFIER_STATE modifiers{};
         uint32_t scanCode = 0;
@@ -635,33 +772,26 @@ std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
             1,
             HidP_Keyboard_Make,
             &modifiers,
-            [](PVOID context, PCHAR newScanCodes, ULONG length) -> BOOLEAN
+            [](PVOID context, PCHAR data, ULONG length) -> BOOLEAN
             {
-                uint32_t& scanCode = *reinterpret_cast<uint32_t*>(context);
+                auto* scan = static_cast<uint32_t*>(context);
 
-                CHECK_LE(length, 3);
+                std::span bytes{ reinterpret_cast<uint8_t*>(data), length };
 
-                switch (length)
-                {
-                case 1:
-                    scanCode = (uint8_t)newScanCodes[0];
-                    break;
-                case 2:
-                    scanCode = ((uint8_t)newScanCodes[0] << 8) | (uint8_t)newScanCodes[1];
-                    break;
-                case 3:
-                    scanCode = ((uint8_t)newScanCodes[0] << 16) | ((uint8_t)newScanCodes[1] << 8) | (uint8_t)newScanCodes[2];
-                    break;
-                }
+                uint32_t value = 0;
+                for (uint8_t b : bytes)
+                    value = (value << 8) | b;
+
+                *scan = value;
 
                 return TRUE;
             },
             reinterpret_cast<PVOID>(&scanCode));
-        CHECK(status == HIDP_STATUS_SUCCESS || status == HIDP_STATUS_I8042_TRANS_UNKNOWN);
 
-        if (scanCode != 0)
+        if (status == HIDP_STATUS_SUCCESS && scanCode != 0)
         {
-            usagesToScanCodes[(HID_USAGE_PAGE_KEYBOARD << 16) | usage] = scanCode;
+            uint32_t usageAndPage = (HID_USAGE_PAGE_KEYBOARD << 16) | usage;
+            table.emplace(usageAndPage, scanCode);
         }
     }
 
@@ -698,12 +828,10 @@ std::map<uint32_t, uint32_t> GetUsagesToScanCodes()
         { HID_USAGE_PAGE_CONSUMER << 16 | 0x022a, 0xe066 }, // AC Previous Link
     };
 
-    for (const auto& mapping : additionalMappings)
-    {
-        usagesToScanCodes[mapping.usageAndPage] = mapping.scanCode;
-    }
+    for (auto& m : additionalMappings)
+        table.emplace(m.usageAndPage, m.scanCode);
 
-    return usagesToScanCodes;
+    return table;
 }
 
 std::string GetScanCodeName(uint16_t scanCode)

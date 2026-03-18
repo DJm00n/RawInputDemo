@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <iostream>
 #include <cwctype>
@@ -117,7 +118,7 @@ inline ScopedHandle OpenDeviceInterface(const std::string& deviceInterface, bool
     return ScopedHandle(handle);
 }
 
-std::string GetUnicodeCharacterNames(std::string string);
+std::string GetUnicodeCharacterNames(const std::string& utf8);
 
 typedef struct tagLAYOUTORTIPPROFILE {
     DWORD dwProfileType;
@@ -138,7 +139,7 @@ typedef struct tagLAYOUTORTIPPROFILE {
 #define LOT_DEFAULT 0x0001
 #define LOT_DISABLED 0x0002
 
-std::wstring GetLayoutProfileId(HKL hkl);
+std::string GetLayoutProfileId(HKL hkl);
 
 // Enumerates all enabled keyboard layouts or text services of the specified user setting
 std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles();
@@ -146,8 +147,8 @@ std::vector<LAYOUTORTIPPROFILE> EnumLayoutProfiles();
 // Returns default layout profile set in user settings
 std::wstring GetDefaultLayoutProfileId();
 
-bool GetLayoutProfile(const std::wstring& layoutProfileId, LAYOUTORTIPPROFILE* outProfile);
-std::string GetLayoutProfileDescription(const std::wstring& layoutProfileId);
+bool GetLayoutProfile(const std::string& layoutProfileId, LAYOUTORTIPPROFILE* outProfile);
+std::string GetLayoutProfileDescription(const std::string& layoutProfileId);
 
 std::string GetLocaleInformation(const std::string& locale, LCTYPE LCType);
 
@@ -161,11 +162,12 @@ std::string GetBcp47FromHkl(HKL hkl);
 // 
 std::string GetKlidFromHkl(HKL hkl);
 
-// Attempts to extract the localized keyboard layout name
-// as it appears in the Windows Regional Settings on the computer.
-// https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-language-pack-default-values
-// It mimics GetLayoutDescription() from input.dll but lacks IME layout support
-std::string GetKeyboardLayoutDisplayName(const std::string& klid);
+
+// Get Display name in "<profileDisplayName>" format.
+// There are two types of <inputProfile> strings:
+// <LangID>:{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}
+// <LangID>:<KLID>
+std::string GetInputProfileDisplayName(const std::string& inputProfile);
 
 // Returns "Language - Layout" string
 // Mimics GetLayoutProfileDescription API
@@ -188,7 +190,7 @@ std::string GetStringFromKeyPress(uint16_t scanCode);
 std::string GetScanCodeName(uint16_t scanCode);
 
 // Get the list of scan codes that are mapped to HID usages
-std::map<uint32_t, uint32_t> GetUsagesToScanCodes();
+std::unordered_map<uint32_t, uint32_t> GetUsagesToScanCodes();
 
 //#ifdef _DEBUG
 #define DBGPRINT(format, ...) DebugPrint(__FUNCTION__, (unsigned int)__LINE__, format, __VA_ARGS__)

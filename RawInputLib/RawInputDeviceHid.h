@@ -20,6 +20,8 @@ public:
     RawInputDeviceHid(RawInputDeviceHid&) = delete;
     void operator=(RawInputDeviceHid) = delete;
 
+    uint32_t GetType() const override { return RIM_TYPEHID; }
+
     uint16_t GetUsagePage() const { return m_UsagePage; }
     uint16_t GetUsageId() const { return m_UsageId; }
 

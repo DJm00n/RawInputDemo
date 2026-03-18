@@ -12,6 +12,8 @@ public:
     RawInputDeviceMouse(RawInputDeviceMouse&) = delete;
     void operator=(RawInputDeviceMouse) = delete;
 
+    uint32_t GetType() const override { return RIM_TYPEMOUSE; }
+
 protected:
     RawInputDeviceMouse(HANDLE handle);
 

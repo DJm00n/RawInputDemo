@@ -10,135 +10,199 @@
 #include <objidlbase.h>
 #include <roapi.h>
 
+// Undocumented - returns localized language name for a BCP-47 tag
+// Used internally by Get-WinUserLanguageList (winlangdb.dll!GetLanguageNames)
 std::string GetLanguageNameWinRT(const std::string& languageTag)
 {
-    HRESULT hr = S_OK;
     static HMODULE winlangdb = ::LoadLibraryW(L"winlangdb.dll");
+    static auto GetLanguageNames = reinterpret_cast<HRESULT(*)(LPCWSTR languageTag, LPWSTR autonym, LPWSTR englishName, LPWSTR localName, LPWSTR scriptName)>(::GetProcAddress(winlangdb, "GetLanguageNames"));
 
-    // Undocumented method used by Get-WinUserLanguageList
-    typedef HRESULT(*GetLanguageNamesFunc)(LPCWSTR languageTag, LPWSTR autonym, LPWSTR englishName, LPWSTR localName, LPWSTR scriptName);
-    static GetLanguageNamesFunc GetLanguageNames = reinterpret_cast<GetLanguageNamesFunc>(::GetProcAddress(winlangdb, "GetLanguageNames"));
+    if (!GetLanguageNames)
+        return {};
 
-    WCHAR autonym[MAX_PATH] = { 0 };
-    WCHAR englishName[MAX_PATH] = { 0 };
-    WCHAR localName[MAX_PATH] = { 0 };
-    WCHAR scriptName[MAX_PATH] = { 0 };
-    hr = GetLanguageNames(utf8::widen(languageTag).c_str(), autonym, englishName, localName, scriptName);
+    wchar_t autonym[MAX_PATH] = {};
+    wchar_t englishName[MAX_PATH] = {};
+    wchar_t localName[MAX_PATH] = {};
+    wchar_t scriptName[MAX_PATH] = {};
+    if (FAILED(GetLanguageNames(utf8::widen(languageTag).c_str(), autonym, englishName, localName, scriptName)))
+        return {};
 
     return utf8::narrow(localName);
 }
 
 std::string GetLanguageName2WinRT(const std::string& languageTag)
 {
-    HSTRING_HEADER hStringHeader;
-    HSTRING hString = nullptr;
-    HRESULT hr = S_OK;
-
     static HMODULE combase = ::LoadLibraryW(L"combase.dll");
-
-    typedef HRESULT(*RoGetActivationFactoryFunc)(_In_ HSTRING activatableClassId, _In_ REFIID iid, _COM_Outptr_ void** factory);
-    typedef HRESULT(*RoInitializeFunc)(_In_ RO_INIT_TYPE initType);
-    typedef HRESULT(*WindowsCreateStringReferenceFunc)(_In_reads_opt_(length + 1) PCWSTR sourceString, UINT32 length, _Out_ HSTRING_HEADER* hstringHeader, _Outptr_result_maybenull_ _Result_nullonfailure_ HSTRING* string);
-    typedef HRESULT(*WindowsDeleteStringFunc)(_In_opt_ HSTRING string);
-    typedef PCWSTR(*WindowsGetStringRawBufferFunc)(_In_opt_ HSTRING string, _Out_opt_ UINT32* length);
-
-    static RoGetActivationFactoryFunc RoGetActivationFactory = reinterpret_cast<RoGetActivationFactoryFunc>(::GetProcAddress(combase, "RoGetActivationFactory"));
-    static RoInitializeFunc RoInitialize = reinterpret_cast<RoInitializeFunc>(::GetProcAddress(combase, "RoInitialize"));
-    static WindowsCreateStringReferenceFunc WindowsCreateStringReference = reinterpret_cast<WindowsCreateStringReferenceFunc>(::GetProcAddress(combase, "WindowsCreateStringReference"));
-    static WindowsDeleteStringFunc WindowsDeleteString = reinterpret_cast<WindowsDeleteStringFunc>(::GetProcAddress(combase, "WindowsDeleteString"));
-    static WindowsGetStringRawBufferFunc WindowsGetStringRawBuffer = reinterpret_cast<WindowsGetStringRawBufferFunc>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
+    static auto RoGetActivationFactory = reinterpret_cast<decltype(&::RoGetActivationFactory)>(::GetProcAddress(combase, "RoGetActivationFactory"));
+    static auto RoInitialize = reinterpret_cast<decltype(&::RoInitialize)>(::GetProcAddress(combase, "RoInitialize"));
+    static auto WindowsCreateStringReference = reinterpret_cast<decltype(&::WindowsCreateStringReference)>(::GetProcAddress(combase, "WindowsCreateStringReference"));
+    static auto WindowsDeleteString = reinterpret_cast<decltype(&::WindowsDeleteString)>(::GetProcAddress(combase, "WindowsDeleteString"));
+    static auto WindowsGetStringRawBuffer = reinterpret_cast<decltype(&::WindowsGetStringRawBuffer)>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
 
     if (!(RoGetActivationFactory && RoInitialize && WindowsCreateStringReference && WindowsDeleteString && WindowsGetStringRawBuffer))
         return {};
 
-    hr = RoInitialize(RO_INIT_MULTITHREADED);
-    if (FAILED(hr))
+    if (FAILED(RoInitialize(RO_INIT_MULTITHREADED)))
         return {};
+
+    // RAII wrapper for HSTRING allocated by WinRT (WindowsDeleteString)
+    auto HStringDeleter = [&](HSTRING s) { WindowsDeleteString(s); };
+    using HStringOwned = std::unique_ptr<std::remove_pointer_t<HSTRING>, decltype(HStringDeleter)>;
+
+    // RAII wrapper for WinRT ref string (no ownership, no delete needed)
+    HSTRING_HEADER hStringHeader{};
+    auto MakeStringRef = [&](const std::wstring& str) -> HSTRING {
+        HSTRING hString = nullptr;
+        WindowsCreateStringReference(str.c_str(), static_cast<UINT32>(str.size()), &hStringHeader, &hString);
+        return hString;
+        };
+
+    // RAII wrapper for COM pointers
+    auto ComDeleter = [](IUnknown* p) { if (p) p->Release(); };
+    using ComOwned = std::unique_ptr<IUnknown, decltype(ComDeleter)>;
 
     const std::wstring languageClassName = RuntimeClass_Windows_Globalization_Language;
-    hr = WindowsCreateStringReference(languageClassName.c_str(), (UINT32)languageClassName.length(), &hStringHeader, &hString);
-
-    if (FAILED(hr) || !hString)
+    HSTRING hClassNameRef = MakeStringRef(languageClassName);
+    if (!hClassNameRef)
         return {};
 
-    ABI::Windows::Globalization::ILanguageFactory* languageFactory = nullptr; // __x_ABI_CWindows_CGlobalization_CILanguageFactory
-    const IID& languageFactoryIID = ABI::Windows::Globalization::IID_ILanguageFactory; // IID___x_ABI_CWindows_CGlobalization_CILanguageFactory
+    ABI::Windows::Globalization::ILanguageFactory* rawFactory = nullptr;
+    if (FAILED(RoGetActivationFactory(hClassNameRef, ABI::Windows::Globalization::IID_ILanguageFactory, reinterpret_cast<void**>(&rawFactory))))
+        return {};
+    ComOwned languageFactory(rawFactory, ComDeleter);
 
-    hr = RoGetActivationFactory(hString, languageFactoryIID, (void**)&languageFactory);
-
-    if (FAILED(hr))
+    const std::wstring languageTagWide = utf8::widen(languageTag);
+    HSTRING hTagRef = MakeStringRef(languageTagWide);
+    if (!hTagRef)
         return {};
 
-    const std::wstring languageTagWide(utf8::widen(languageTag));
-    hr = WindowsCreateStringReference(languageTagWide.c_str(), (UINT32)languageTagWide.size(), &hStringHeader, &hString);
-
-    if (FAILED(hr))
-    {
-        languageFactory->Release();
+    ABI::Windows::Globalization::ILanguage* rawLanguage = nullptr;
+    if (FAILED(rawFactory->CreateLanguage(hTagRef, &rawLanguage)))
         return {};
-    }
+    ComOwned language(rawLanguage, ComDeleter);
 
-    ABI::Windows::Globalization::ILanguage* language = nullptr; // __x_ABI_CWindows_CGlobalization_CILanguage
-    hr = languageFactory->CreateLanguage(hString, &language);
-
-    if (FAILED(hr))
-    {
-        languageFactory->Release();
+    HSTRING rawDisplayName = nullptr;
+    if (FAILED(rawLanguage->get_DisplayName(&rawDisplayName)))
         return {};
-    }
+    HStringOwned displayName(rawDisplayName, HStringDeleter);
 
-    HSTRING languageDisplayNameString = nullptr;
-    hr = language->get_DisplayName(&languageDisplayNameString);
+    return utf8::narrow(WindowsGetStringRawBuffer(rawDisplayName, nullptr));
+}
 
-    if (FAILED(hr))
-    {
-        language->Release();
-        languageFactory->Release();
+std::string GetAbbreviatedName2WinRT(const std::string& languageTag)
+{
+    static HMODULE combase = ::LoadLibraryW(L"combase.dll");
+    static auto RoGetActivationFactory = reinterpret_cast<decltype(&::RoGetActivationFactory)>(::GetProcAddress(combase, "RoGetActivationFactory"));
+    static auto RoInitialize = reinterpret_cast<decltype(&::RoInitialize)>(::GetProcAddress(combase, "RoInitialize"));
+    static auto WindowsCreateStringReference = reinterpret_cast<decltype(&::WindowsCreateStringReference)>(::GetProcAddress(combase, "WindowsCreateStringReference"));
+    static auto WindowsDeleteString = reinterpret_cast<decltype(&::WindowsDeleteString)>(::GetProcAddress(combase, "WindowsDeleteString"));
+    static auto WindowsGetStringRawBuffer = reinterpret_cast<decltype(&::WindowsGetStringRawBuffer)>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
+
+    if (!(RoGetActivationFactory && RoInitialize && WindowsCreateStringReference && WindowsDeleteString && WindowsGetStringRawBuffer))
         return {};
-    }
 
-    std::wstring returnString = WindowsGetStringRawBuffer(languageDisplayNameString, NULL);
+    if (FAILED(RoInitialize(RO_INIT_MULTITHREADED)))
+        return {};
 
-    hr = WindowsDeleteString(languageDisplayNameString);
-    language->Release();
-    languageFactory->Release();
+    // RAII wrapper for HSTRING allocated by WinRT (WindowsDeleteString)
+    auto HStringDeleter = [&](HSTRING s) { WindowsDeleteString(s); };
+    using HStringOwned = std::unique_ptr<std::remove_pointer_t<HSTRING>, decltype(HStringDeleter)>;
 
-    return utf8::narrow(returnString);
+    // RAII wrapper for WinRT ref string (no ownership, no delete needed)
+    HSTRING_HEADER hStringHeader{};
+    auto MakeStringRef = [&](const std::wstring& str) -> HSTRING {
+        HSTRING hString = nullptr;
+        WindowsCreateStringReference(str.c_str(), static_cast<UINT32>(str.size()), &hStringHeader, &hString);
+        return hString;
+        };
+
+    // RAII wrapper for COM pointers
+    auto ComDeleter = [](IUnknown* p) { if (p) p->Release(); };
+    using ComOwned = std::unique_ptr<IUnknown, decltype(ComDeleter)>;
+
+    const std::wstring languageClassName = RuntimeClass_Windows_Globalization_Language;
+    HSTRING hClassNameRef = MakeStringRef(languageClassName);
+    if (!hClassNameRef)
+        return {};
+
+    ABI::Windows::Globalization::ILanguageFactory* rawFactory = nullptr;
+    if (FAILED(RoGetActivationFactory(hClassNameRef, ABI::Windows::Globalization::IID_ILanguageFactory, reinterpret_cast<void**>(&rawFactory))))
+        return {};
+    ComOwned languageFactory(rawFactory, ComDeleter);
+
+    const std::wstring languageTagWide = utf8::widen(languageTag);
+    HSTRING hTagRef = MakeStringRef(languageTagWide);
+    if (!hTagRef)
+        return {};
+
+    ABI::Windows::Globalization::ILanguage* rawLanguage = nullptr;
+    if (FAILED(rawFactory->CreateLanguage(hTagRef, &rawLanguage)))
+        return {};
+    ComOwned language(rawLanguage, ComDeleter);
+
+    ABI::Windows::Globalization::ILanguage3* rawLanguage3 = nullptr;
+    if (FAILED(rawLanguage->QueryInterface(ABI::Windows::Globalization::IID_ILanguage3, reinterpret_cast<void**>(&rawLanguage3))))
+        return {};
+    ComOwned language3(rawLanguage3, ComDeleter);
+    
+
+    HSTRING rawAbbreviatedName = nullptr;
+    if (FAILED(rawLanguage3->get_AbbreviatedName(&rawAbbreviatedName)))
+        return {};
+    HStringOwned abbreviatedName(rawAbbreviatedName, HStringDeleter);
+
+    return utf8::narrow(WindowsGetStringRawBuffer(rawAbbreviatedName, nullptr));
 }
 
 std::string GetBcp47FromHklWinRT(HKL hkl)
 {
-    HRESULT hr = S_OK;
-    HSTRING hString = nullptr;
-
     static HMODULE combase = ::LoadLibraryW(L"combase.dll");
-
-    typedef HRESULT(*WindowsDeleteStringFunc)(_In_opt_ HSTRING string);
-    typedef PCWSTR(*WindowsGetStringRawBufferFunc)(_In_opt_ HSTRING string, _Out_opt_ UINT32* length);
-
-    static WindowsDeleteStringFunc WindowsDeleteString = reinterpret_cast<WindowsDeleteStringFunc>(::GetProcAddress(combase, "WindowsDeleteString"));
-    static WindowsGetStringRawBufferFunc WindowsGetStringRawBuffer = reinterpret_cast<WindowsGetStringRawBufferFunc>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
-
-    if (!(WindowsDeleteString && WindowsGetStringRawBuffer))
-        return {};
-
-    static HMODULE bcp47langs = ::LoadLibraryW(L"bcp47langs.dll");
+    static auto WindowsDeleteString = reinterpret_cast<decltype(&::WindowsDeleteString)>(::GetProcAddress(combase, "WindowsDeleteString"));
+    static auto WindowsGetStringRawBuffer = reinterpret_cast<decltype(&::WindowsGetStringRawBuffer)>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
 
     // Undocumented method used by Get-WinUserLanguageList
-    typedef HRESULT(*Bcp47FromHklFunc)(HKL hkl, HSTRING* hString);
-    static Bcp47FromHklFunc Bcp47FromHkl = reinterpret_cast<Bcp47FromHklFunc>(::GetProcAddress(bcp47langs, "Bcp47FromHkl"));
+    static HMODULE bcp47langs = ::LoadLibraryW(L"bcp47langs.dll");
+    static auto Bcp47FromHkl = reinterpret_cast<HRESULT(*)(HKL, HSTRING*)>(::GetProcAddress(bcp47langs, "Bcp47FromHkl"));
 
-    if (!Bcp47FromHkl)
+    if (!(WindowsDeleteString && WindowsGetStringRawBuffer && Bcp47FromHkl))
         return {};
 
-    hr = Bcp47FromHkl(hkl, &hString);
-    if (FAILED(hr))
-    {
+    HSTRING hString = nullptr;
+    if (FAILED(Bcp47FromHkl(hkl, &hString)))
         return {};
-    }
 
-    std::wstring returnString = WindowsGetStringRawBuffer(hString, NULL);
-    hr = WindowsDeleteString(hString);
+    auto HStringDeleter = [](HSTRING s) { WindowsDeleteString(s); };
+    std::unique_ptr<std::remove_pointer_t<HSTRING>, decltype(HStringDeleter)> owned(hString, HStringDeleter);
 
-    return utf8::narrow(returnString);
+    return utf8::narrow(WindowsGetStringRawBuffer(hString, nullptr));
+}
+
+std::string GetCurrentInputLanguage()
+{
+    static HMODULE bcp47langs = ::LoadLibraryW(L"ext-ms-win-globalization-input-l1-1-2.dll");
+    static auto WGIGetCurrentInputLanguage = reinterpret_cast<HRESULT(*)(USHORT*, UINT64, UINT*, GUID*)>(::GetProcAddress(bcp47langs, "WGIGetCurrentInputLanguage"));
+
+    static HMODULE combase = ::LoadLibraryW(L"combase.dll");
+    static auto WindowsDeleteString = reinterpret_cast<decltype(&::WindowsDeleteString)>(::GetProcAddress(combase, "WindowsDeleteString"));
+    static auto WindowsGetStringRawBuffer = reinterpret_cast<decltype(&::WindowsGetStringRawBuffer)>(::GetProcAddress(combase, "WindowsGetStringRawBuffer"));
+
+    if (!(WGIGetCurrentInputLanguage && WindowsDeleteString && WindowsGetStringRawBuffer))
+        return {};
+
+    USHORT  outParam[4] = {};   // param_1: 4 x ushort, zeroed at start of function
+    UINT    inputScope = 0;
+    GUID    profileGuid{};
+
+    if (FAILED(WGIGetCurrentInputLanguage(outParam, 0, &inputScope, &profileGuid)))
+        return {};
+
+    // param_1 might be an HSTRING written by value (8 bytes = pointer on x64)
+    HSTRING hResult = *reinterpret_cast<HSTRING*>(outParam);
+    if (!hResult)
+        return {};
+
+    auto HStringDeleter = [](HSTRING s) { WindowsDeleteString(s); };
+    std::unique_ptr<std::remove_pointer_t<HSTRING>, decltype(HStringDeleter)> owned(hResult, HStringDeleter);
+
+    return utf8::narrow(WindowsGetStringRawBuffer(hResult, nullptr));
 }

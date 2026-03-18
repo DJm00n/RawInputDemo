@@ -14,10 +14,17 @@ public:
     RawInputDeviceKeyboard(RawInputDeviceKeyboard&) = delete;
     void operator=(RawInputDeviceKeyboard) = delete;
 
+    uint32_t GetType() const override { return RIM_TYPEKEYBOARD; }
+
 protected:
     RawInputDeviceKeyboard(HANDLE handle);
 
     void OnInput(const RAWINPUT* input) override;
+
+    void OnInputPrivate(const RAWKEYBOARD& keyboard);
+    void OnInputCharacter(uint32_t character);
+
+    void OnInputLanguageChanged(HKL hkl) override;
 
     bool QueryDeviceInfo() override;
 
@@ -46,4 +53,6 @@ protected:
     } m_ExtendedKeyboardInfo;
 
     std::array<uint8_t, 256> m_KeyState;
+	HKL m_CurrentHKL = nullptr;
+    wchar_t m_PendingSurrogate = 0;
 };
