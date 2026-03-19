@@ -117,7 +117,39 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
 
     WNDCLASSEXW wc  = { sizeof(wc) };
-    wc.lpfnWndProc  = DefWindowProcW;
+    wc.lpfnWndProc = [](HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) -> LRESULT
+        {
+            if (uMsg == WM_NCCREATE)
+            {
+                auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+                ::SetWindowLongPtrW(hWnd, GWLP_USERDATA,
+                    reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+                return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
+            }
+
+            auto* self = reinterpret_cast<RawInputManagerImpl*>(
+                ::GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+
+            if (!self)
+                return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
+
+            switch (uMsg)
+            {
+            case WM_INPUT_DEVICE_CHANGE:
+                if (wParam == GIDC_ARRIVAL)
+                    self->OnDeviceConnected(reinterpret_cast<HANDLE>(lParam));
+                else
+                    self->OnDeviceDisconnected(reinterpret_cast<HANDLE>(lParam));
+                return 0;
+
+            case WM_INPUTLANGCHANGE:
+                for (auto& [handle, device] : self->m_Devices)
+                    device->OnInputLanguageChanged(reinterpret_cast<HKL>(lParam));
+                return 0;
+            }
+
+            return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
+        };
     wc.hInstance    = hInstance;
     wc.lpszClassName = RAW_SINK_CLASS;
     ::RegisterClassExW(&wc);
@@ -139,55 +171,65 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     bool running = true;
     while (running)
     {
-        // Вместо WaitMessage():
-        ::MsgWaitForMultipleObjectsEx(0, nullptr, 1, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        WaitMessage();
 
-        while (running &&
-            (::PeekMessageW(&msg, nullptr, 0, WM_INPUT - 1, PM_REMOVE) ||
-                ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, 0xFFFF, PM_REMOVE)))
+        // WM_INPUT_DEVICE_CHANGE lives in mlInput (raw input queue), not mlPost.
+        // It is only visible to PeekMessage when the range includes WM_INPUT
+        // (which sets QS_RAWINPUT in the wake mask via CalcWakeMask).
+        // Check for it explicitly before choosing the fast or fallback path.
+        bool hasDeviceChange = false;
+        if (HIWORD(::GetQueueStatus(QS_RAWINPUT)) & QS_RAWINPUT)
         {
-            switch (msg.message)
+            MSG testMsg;
+            while (::PeekMessageW(&testMsg, nullptr, 0, WM_INPUT, PM_NOREMOVE))
             {
-            case WM_INPUT_DEVICE_CHANGE:
-            {
-                CHECK(msg.wParam == GIDC_ARRIVAL || msg.wParam == GIDC_REMOVAL);
-                HANDLE deviceHandle = reinterpret_cast<HANDLE>(msg.lParam);
-
-                switch (msg.wParam)
+                if (testMsg.message == WM_INPUT_DEVICE_CHANGE)
                 {
-                case GIDC_ARRIVAL:
-                    OnDeviceConnected(deviceHandle);
-                    break;
-                case GIDC_REMOVAL:
-                    OnDeviceDisconnected(deviceHandle);
+                    hasDeviceChange = true;
                     break;
                 }
-
-                continue;
+                if (testMsg.message == WM_INPUT)
+                    break; // no device change before this WM_INPUT
+                // skip other messages and continue looking
+                ::PeekMessageW(&testMsg, nullptr, testMsg.message, testMsg.message, PM_REMOVE);
             }
-
-            case WM_INPUTLANGCHANGE:
-            {
-                HKL newLayout = reinterpret_cast<HKL>(msg.lParam);
-                for (auto& [handle, device] : m_Devices)
-                    device->OnInputLanguageChanged(newLayout);
-
-                continue;
-            }
-
-            case WM_QUIT:
-            {
-                running = false;
-                continue;
-            }
-
-            }
-
-            ::DispatchMessageW(&msg);
         }
 
-        if (running)
+        if (hasDeviceChange)
         {
+            // Fallback path: WM_INPUT_DEVICE_CHANGE is pending.
+            // Use range 0..WM_INPUT to retrieve it — but this also removes
+            // WM_INPUT from mlInput, so we must read it via GetRawInputData.
+            while (running &&
+                (::PeekMessageW(&msg, nullptr, 0, WM_INPUT, PM_REMOVE) ||
+                    ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, UINT_MAX, PM_REMOVE)))
+            {
+                if (msg.message == WM_QUIT) { running = false; break; }
+                if (msg.message == WM_INPUT)
+                {
+                    UINT bufferSize = m_InputBufferSize;
+                    auto* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
+                    if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(msg.lParam),
+                        RID_INPUT, input, &bufferSize, sizeof(RAWINPUTHEADER)) != (UINT)-1)
+                        OnInput(input);
+                    continue;
+                }
+                ::DispatchMessageW(&msg);
+            }
+        }
+        else
+        {
+            // Fast path: no device changes pending.
+            // Skip WM_INPUT via range filters so it stays in mlInput
+            // for GetRawInputBuffer to drain in batches.
+            while (running &&
+                (::PeekMessageW(&msg, nullptr, 0, WM_INPUT - 1, PM_REMOVE) ||
+                    ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, UINT_MAX, PM_REMOVE)))
+            {
+                if (msg.message == WM_QUIT) { running = false; break; }
+                ::DispatchMessageW(&msg);
+            }
+
             for (;;)
             {
                 RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
