@@ -23,35 +23,8 @@ namespace
         DBGPRINT("Product String: %s", device->GetProductString().c_str());
     }
 
-    constexpr UINT RAW_BATCH_SIZE = 128;
-    constexpr UINT RAW_BUF_INITIAL = RAW_BATCH_SIZE * sizeof(RAWINPUT);
-
-    // Needed for NEXTRAWINPUTBLOCK call
-    typedef ULONG_PTR QWORD;
-
-    // GetRawInputBuffer requires the buffer to be aligned to pointer size.
-    constexpr std::align_val_t RAW_BUF_ALIGN{ sizeof(ULONG_PTR) };
-
     // Window class name for the message-only sink window.
     constexpr LPCWSTR RAW_SINK_CLASS = L"RawInputSink";
-
-    struct AlignedDeleter
-    {
-        std::align_val_t align;
-        void operator()(std::byte* p) const
-        {
-            ::operator delete[](p, align);
-        }
-    };
-
-    using AlignedBuffer = std::unique_ptr<std::byte[], AlignedDeleter>;
-
-    AlignedBuffer AllocAligned(UINT size, std::align_val_t align)
-    {
-        return AlignedBuffer(
-            static_cast<std::byte*>(::operator new[](size, align)),
-            AlignedDeleter{ align });
-    }
 }
 
 struct RawInputDeviceManager::RawInputManagerImpl
@@ -78,9 +51,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
     std::thread       m_Thread;
     HWND              m_hWnd     = nullptr;
 
-    // Raw input buffer — aligned, grows on demand, never shrinks.
-    AlignedBuffer m_InputBuffer;
-    UINT          m_InputBufferSize = 0;
+    std::vector<BYTE> m_InputBuffer;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 };
@@ -90,8 +61,7 @@ struct RawInputDeviceManager::RawInputManagerImpl
 // ---------------------------------------------------------------------------
 
 RawInputDeviceManager::RawInputManagerImpl::RawInputManagerImpl()
-    : m_InputBuffer(AllocAligned(RAW_BUF_INITIAL, RAW_BUF_ALIGN))
-    , m_InputBufferSize(RAW_BUF_INITIAL)
+    : m_InputBuffer(sizeof(RAWINPUT) + 64, 0)
 {
     // The promise/future pair replaces m_ReadyEvent (CreateEvent / WaitForSingleObject).
     // The worker thread signals readiness by calling promise.set_value(); the
@@ -116,7 +86,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
 {
     HINSTANCE hInstance = ::GetModuleHandleW(nullptr);
 
-    WNDCLASSEXW wc  = { sizeof(wc) };
+    WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc = [](HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) -> LRESULT
         {
             if (uMsg == WM_NCCREATE)
@@ -135,6 +105,26 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
 
             switch (uMsg)
             {
+            case WM_INPUT:
+            {
+                for (;;)
+                {
+                    UINT size = static_cast<UINT>(self->m_InputBuffer.size());
+                    UINT result = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam),
+                        RID_INPUT, self->m_InputBuffer.data(), &size, sizeof(RAWINPUTHEADER));
+
+                    if (result != (UINT)-1)
+                    {
+                        self->OnInput(reinterpret_cast<RAWINPUT*>(self->m_InputBuffer.data()));
+                        break;
+                    }
+
+                    // Buffer too small — size is updated by GetRawInputData to required size
+                    self->m_InputBuffer.resize(size);
+                }
+                return 0;
+            }
+
             case WM_INPUT_DEVICE_CHANGE:
                 if (wParam == GIDC_ARRIVAL)
                     self->OnDeviceConnected(reinterpret_cast<HANDLE>(lParam));
@@ -150,118 +140,26 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
 
             return ::DefWindowProcW(hWnd, uMsg, wParam, lParam);
         };
-    wc.hInstance    = hInstance;
+    wc.hInstance = hInstance;
     wc.lpszClassName = RAW_SINK_CLASS;
     ::RegisterClassExW(&wc);
 
-    // Pass `this` as lpParam — retrieved in StaticWndProc on WM_NCCREATE.
     m_hWnd = ::CreateWindowExW(0, RAW_SINK_CLASS, nullptr, 0,
-        0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance,
-        this);
+        0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, this);
     CHECK(IsValidHandle(m_hWnd));
 
     CHECK(Register());
-
     EnumerateDevices();
 
-    // Unblock the constructor — window is ready, devices are registered.
     readyPromise.set_value();
 
     MSG msg;
-    bool running = true;
-    while (running)
+    while (::GetMessageW(&msg, nullptr, 0, 0) > 0)
     {
-        WaitMessage();
-
-        // WM_INPUT_DEVICE_CHANGE lives in mlInput (raw input queue), not mlPost.
-        // It is only visible to PeekMessage when the range includes WM_INPUT
-        // (which sets QS_RAWINPUT in the wake mask via CalcWakeMask).
-        // Check for it explicitly before choosing the fast or fallback path.
-        bool hasDeviceChange = false;
-        if (HIWORD(::GetQueueStatus(QS_RAWINPUT)) & QS_RAWINPUT)
-        {
-            MSG testMsg;
-            while (::PeekMessageW(&testMsg, nullptr, 0, WM_INPUT, PM_NOREMOVE))
-            {
-                if (testMsg.message == WM_INPUT_DEVICE_CHANGE)
-                {
-                    hasDeviceChange = true;
-                    break;
-                }
-                if (testMsg.message == WM_INPUT)
-                    break; // no device change before this WM_INPUT
-                // skip other messages and continue looking
-                ::PeekMessageW(&testMsg, nullptr, testMsg.message, testMsg.message, PM_REMOVE);
-            }
-        }
-
-        if (hasDeviceChange)
-        {
-            // Fallback path: WM_INPUT_DEVICE_CHANGE is pending.
-            // Use range 0..WM_INPUT to retrieve it — but this also removes
-            // WM_INPUT from mlInput, so we must read it via GetRawInputData.
-            while (running &&
-                (::PeekMessageW(&msg, nullptr, 0, WM_INPUT, PM_REMOVE) ||
-                    ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, UINT_MAX, PM_REMOVE)))
-            {
-                if (msg.message == WM_QUIT) { running = false; break; }
-                if (msg.message == WM_INPUT)
-                {
-                    UINT bufferSize = m_InputBufferSize;
-                    auto* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
-                    if (::GetRawInputData(reinterpret_cast<HRAWINPUT>(msg.lParam),
-                        RID_INPUT, input, &bufferSize, sizeof(RAWINPUTHEADER)) != (UINT)-1)
-                        OnInput(input);
-                    continue;
-                }
-                ::DispatchMessageW(&msg);
-            }
-        }
-        else
-        {
-            // Fast path: no device changes pending.
-            // Skip WM_INPUT via range filters so it stays in mlInput
-            // for GetRawInputBuffer to drain in batches.
-            while (running &&
-                (::PeekMessageW(&msg, nullptr, 0, WM_INPUT - 1, PM_REMOVE) ||
-                    ::PeekMessageW(&msg, nullptr, WM_INPUT + 1, UINT_MAX, PM_REMOVE)))
-            {
-                if (msg.message == WM_QUIT) { running = false; break; }
-                ::DispatchMessageW(&msg);
-            }
-
-            for (;;)
-            {
-                RAWINPUT* input = reinterpret_cast<RAWINPUT*>(m_InputBuffer.get());
-                UINT bufferSize = m_InputBufferSize;
-                UINT count = ::GetRawInputBuffer(input, &bufferSize, sizeof(RAWINPUTHEADER));
-
-                if (count == 0)
-                    break;
-
-                if (count == static_cast<UINT>(-1))
-                {
-                    // Buffer too small — grow and retry.
-                    bufferSize = std::max(bufferSize, m_InputBufferSize * 2);
-                    m_InputBuffer = AllocAligned(bufferSize, RAW_BUF_ALIGN);
-                    m_InputBufferSize = bufferSize;
-                    continue;
-                }
-
-                if (count > 1)
-                    DBGPRINT("DrainRawInputQueue: got %u extra buffered events", count);
-
-                for (UINT i = 0; i < count; ++i, input = NEXTRAWINPUTBLOCK(input))
-                {
-                    OnInput(input);
-                }
-                // Do not break — there may be more events in the queue.
-            }
-        }
+        ::DispatchMessageW(&msg);
     }
 
     CHECK(Unregister());
-
     CHECK(::DestroyWindow(m_hWnd));
     m_hWnd = nullptr;
 
