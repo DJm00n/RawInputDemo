@@ -4,6 +4,7 @@
 #include "RawInputDeviceManager.h"
 
 #include "RawInputDevice.h"
+#include "RawInputDeviceFactory.h"
 #include "RawInputDeviceMouse.h"
 #include "RawInputDeviceKeyboard.h"
 #include "RawInputDeviceHid.h"

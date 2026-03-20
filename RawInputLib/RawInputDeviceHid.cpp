@@ -17,6 +17,30 @@ namespace
     }
 }
 
+// static
+std::unique_ptr<RawInputDevice> RawInputDeviceHid::Create(HANDLE handle)
+{
+    UINT size = 0;
+    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, nullptr, &size)
+        != 0 || size == 0)
+        return nullptr;
+
+    auto buf = std::make_unique<uint8_t[]>(size);
+    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, buf.get(), &size)
+        != size)
+        return nullptr;
+
+    auto* ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(buf.get());
+
+    HIDP_CAPS caps{};
+    if (HidP_GetCaps(ppd, &caps) != HIDP_STATUS_SUCCESS)
+        return nullptr;
+
+    return std::unique_ptr<RawInputDevice>(new RawInputDeviceHid(handle));
+}
+
+// ---------------------------------------------------------------------------
+
 RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     : RawInputDevice(handle)
 {

@@ -191,6 +191,7 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="printvk.h" />
     <ClInclude Include="RawInputDevice.h" />
+    <ClInclude Include="RawInputDeviceFactory.h" />
     <ClInclude Include="RawInputDeviceHid.h" />
     <ClInclude Include="RawInputDeviceKeyboard.h" />
     <ClInclude Include="RawInputDeviceManager.h" />
@@ -209,6 +210,7 @@
     </ClCompile>
     <ClCompile Include="printvk.cpp" />
     <ClCompile Include="RawInputDevice.cpp" />
+    <ClCompile Include="RawInputDeviceFactory.cpp" />
     <ClCompile Include="RawInputDeviceHid.cpp" />
     <ClCompile Include="RawInputDeviceKeyboard.cpp" />
     <ClCompile Include="RawInputDeviceManager.cpp" />

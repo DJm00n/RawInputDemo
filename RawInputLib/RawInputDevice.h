@@ -2,6 +2,8 @@
 
 #include "utils.h"
 
+#include "RawInputDeviceFactory.h"
+
 #include "UsbDevice.h"
 
 #include <memory>
@@ -87,17 +89,4 @@ protected:
     std::vector<std::string> m_DeviceHardwareIds;
 
     bool m_IsValid = false;
-};
-
-template<typename T> class RawInputDeviceFactory
-{
-    friend class RawInputDeviceManager;
-
-    RawInputDeviceFactory() { }
-
-    // TODO make it variadic template
-    std::unique_ptr<RawInputDevice> Create(HANDLE handle)
-    {
-        return std::unique_ptr<T>(new T { handle });
-    }
 };

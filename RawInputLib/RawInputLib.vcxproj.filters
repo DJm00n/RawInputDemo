@@ -51,15 +51,15 @@
     <ClInclude Include="utils_winrt.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RawInputDeviceFactory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RawInputDevice.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="RawInputDeviceHid.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RawInputDeviceKeyboard.cpp">
@@ -81,6 +81,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="utils_winrt.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RawInputDeviceHid.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RawInputDeviceFactory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -20,6 +20,11 @@ public:
     RawInputDeviceHid(RawInputDeviceHid&) = delete;
     void operator=(RawInputDeviceHid) = delete;
 
+    // Inspects the HID descriptor and constructs the appropriate subclass:
+    // RawInputDeviceGamepad, RawInputDeviceWheel, or RawInputDeviceHid.
+    // Returns nullptr if the device cannot be initialised.
+    static std::unique_ptr<RawInputDevice> Create(HANDLE handle);
+
     uint32_t GetType() const override { return RIM_TYPEHID; }
 
     uint16_t GetUsagePage() const { return m_UsagePage; }
@@ -36,7 +41,7 @@ public:
     std::string GetBluetoothLEInterfacePath() const { return m_BluetoothLEInterfacePath; }
 
 protected:
-    RawInputDeviceHid(HANDLE handle);
+    explicit RawInputDeviceHid(HANDLE handle);
 
     void OnInput(const RAWINPUT* input) override;
 
