@@ -10,6 +10,14 @@
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
+    if (handle == NULL)
+    {
+        m_InterfacePath = "Default Mouse";
+        m_Identity.product = "Default Mouse";
+        m_IsValid = true; // Virtual mouse device without a real handle.
+        return;
+    }
+
     m_IsValid = QueryDeviceInfo();
 
     //DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());

@@ -7,8 +7,8 @@ class UsbDeviceInfo
 public:
     UsbDeviceInfo(const std::string& hidDeviceInstanceId);
 
-    UsbDeviceInfo(UsbDeviceInfo&) = delete;
-    void operator=(UsbDeviceInfo) = delete;
+    //UsbDeviceInfo(UsbDeviceInfo&) = delete;
+    //void operator=(UsbDeviceInfo) = delete;
 
 public:
     std::string m_DeviceInstanceId;

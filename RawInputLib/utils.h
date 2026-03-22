@@ -8,6 +8,7 @@
 #include <memory>
 #include <iostream>
 #include <cwctype>
+#include <optional>
 #pragma warning(pop)
 
 // UTF8<=>UTF16 conversion functions

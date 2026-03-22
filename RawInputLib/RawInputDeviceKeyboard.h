@@ -6,6 +6,7 @@
 
 class RawInputDeviceKeyboard : public RawInputDevice
 {
+    friend class RawInputDeviceManager;
     friend class RawInputDeviceFactory<RawInputDeviceKeyboard>;
 
 public:

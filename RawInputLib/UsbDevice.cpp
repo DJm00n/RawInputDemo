@@ -69,7 +69,7 @@ namespace
             &writtenSize,
             nullptr))
         {
-            DBGPRINT("DeviceIoControl(IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION) failed. GetLastError() = 0x%04x", ::GetLastError());
+            //DBGPRINT("DeviceIoControl(IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION) failed. GetLastError() = 0x%04x", ::GetLastError());
             return {};
         }
 
@@ -392,6 +392,6 @@ UsbDeviceInfo::UsbDeviceInfo(const std::string& hidDeviceInstanceId)
     // Get raw HID Report Descriptor
     if (!GetHidReportDescriptor(hubInterfaceHandle, m_UsbPortIndex, hidDescriptor->DescriptorList[0].wReportLength, interfaceDescriptor->bInterfaceNumber, m_HidReportDescriptor))
     {
-        DBGPRINT("UsbDevice: cannot get raw HID Report Descriptor");
+        //DBGPRINT("UsbDevice: cannot get raw HID Report Descriptor");
     }
 }

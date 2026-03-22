@@ -75,20 +75,17 @@ void DumpDeviceInfo(const RawInputDevice* device)
 
         if (hidDevice->IsXInputDevice())
         {
-            fmt::print("It have XInput Device Interface: {}\n", hidDevice->GetXInputInterfacePath().c_str());
-            fmt::print("  ->UserID: {}\n", hidDevice->GetXInputUserIndex());
+            fmt::print("It is XInput Device with UserID: {}\n", hidDevice->GetXInputUserIndex());
         }
 
         if (hidDevice->IsXboxGipDevice())
         {
-            fmt::print("It have Xbox One GIP Device Interface: {}\n", hidDevice->GetXboxGipInterfacePath());
-            fmt::print("  ->Serial: {}\n", device->GetSerialNumberString());
+            fmt::print("It is Xbox GIP Device\n");
         }
 
         if (hidDevice->IsBluetoothLEDevice())
         {
-            fmt::print("->It have BluetoothLE Device Interface: {}\n", hidDevice->GetBluetoothLEInterfacePath());
-            fmt::print("  ->MAC Address: {}\n", device->GetSerialNumberString());
+            fmt::print("It is BluetoothLE Device\n");
         }
     }
 

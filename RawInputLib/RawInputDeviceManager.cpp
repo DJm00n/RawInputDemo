@@ -22,6 +22,15 @@ namespace
         DBGPRINT("Interface path: %s", device->GetInterfacePath().c_str());
         DBGPRINT("Manufacturer String: %s", device->GetManufacturerString().c_str());
         DBGPRINT("Product String: %s", device->GetProductString().c_str());
+
+    }
+
+    bool IsVirtualRIDDevice(const std::string& path)
+    {
+        // Case-insensitive, covers both keyboard and mouse variants
+        stringutils::ci_string ci(path.c_str(), path.size());
+        return ci.find("\\microsoft keyboard rid\\") != ci.npos
+            || ci.find("\\microsoft mouse rid\\") != ci.npos;
     }
 
     // Window class name for the message-only sink window.
@@ -47,7 +56,6 @@ struct RawInputDeviceManager::RawInputManagerImpl
     void OnInput(const RAWINPUT* input);
 
     std::unique_ptr<RawInputDevice> CreateRawInputDevice(DWORD deviceType, HANDLE deviceHandle) const;
-    RawInputDevice* FindDevice(DWORD deviceType, HANDLE deviceHandle) const;
 
     std::thread       m_Thread;
     HWND              m_hWnd     = nullptr;
@@ -55,6 +63,9 @@ struct RawInputDeviceManager::RawInputManagerImpl
     std::vector<BYTE> m_InputBuffer;
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
+
+    std::unique_ptr<RawInputDeviceKeyboard> m_DefaultKeyboard;
+    std::unique_ptr<RawInputDeviceMouse>    m_DefaultMouse;
 };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +161,10 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
     CHECK(IsValidHandle(m_hWnd));
 
     CHECK(Register());
+
+    m_DefaultKeyboard.reset(static_cast<RawInputDeviceKeyboard*>(CreateRawInputDevice(RIM_TYPEKEYBOARD, NULL).release()));
+    m_DefaultMouse.reset(static_cast<RawInputDeviceMouse*>(CreateRawInputDevice(RIM_TYPEMOUSE, NULL).release()));
+
     EnumerateDevices();
 
     readyPromise.set_value();
@@ -203,12 +218,27 @@ bool RawInputDeviceManager::RawInputManagerImpl::Unregister()
 
 void RawInputDeviceManager::RawInputManagerImpl::OnDeviceConnected(HANDLE deviceHandle)
 {
+	std::string interfacePath = RawInputDevice::QueryRawDeviceInterfacePath(deviceHandle);
+    if (IsVirtualRIDDevice(interfacePath))
+    {
+        DBGPRINT("Skipping virtual device. Handle=0x%08x, Path: %s", deviceHandle, interfacePath.c_str());
+        return;
+    }
+
     RID_DEVICE_INFO deviceInfo;
     CHECK(RawInputDevice::QueryRawDeviceInfo(deviceHandle, &deviceInfo));
 
-    if (FindDevice(deviceInfo.dwType, deviceHandle) != nullptr)
+    std::string deviceTypeStr;
+    switch (deviceInfo.dwType)
     {
-        DBGPRINT("Skipping already detected device 0x%x of type %d", deviceHandle, deviceInfo.dwType);
+    case RIM_TYPEMOUSE:    deviceTypeStr = "Mouse";    break;
+    case RIM_TYPEKEYBOARD: deviceTypeStr = "Keyboard"; break;
+    case RIM_TYPEHID:      deviceTypeStr = "HID";      break;
+    }
+
+    if (m_Devices.find(deviceHandle) != m_Devices.end())
+    {
+        //DBGPRINT("Skipping already detected %s device. Handle=0x%08x, Path: %s", deviceTypeStr.c_str(), deviceHandle, interfacePath.c_str());
         return;
     }
 
@@ -217,20 +247,24 @@ void RawInputDeviceManager::RawInputManagerImpl::OnDeviceConnected(HANDLE device
     auto emplace_result = m_Devices.emplace(deviceHandle, std::move(new_device));
     CHECK(emplace_result.second);
 
-    std::string deviceTypeStr;
-    switch (deviceInfo.dwType)
-    {
-    case RIM_TYPEMOUSE:    deviceTypeStr = "mouse";    break;
-    case RIM_TYPEKEYBOARD: deviceTypeStr = "keyboard"; break;
-    case RIM_TYPEHID:      deviceTypeStr = "HID";      break;
-    }
-    DBGPRINT("Connected raw input %s. Handle=%x", deviceTypeStr.c_str(), deviceHandle);
-    DumpInfo(emplace_result.first->second.get());
+    DBGPRINT("Connected %s device. Handle=0x%08x, Path: %s", deviceTypeStr.c_str(), deviceHandle, interfacePath.c_str());
+
+    //DumpInfo(emplace_result.first->second.get());
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnDeviceDisconnected(HANDLE deviceHandle)
 {
-    DBGPRINT("Disconnected raw input device. Handle=%x", deviceHandle);
+    auto it = m_Devices.find(deviceHandle);
+
+    std::string deviceTypeStr;
+    switch (it->second->GetType())
+    {
+    case RIM_TYPEMOUSE:    deviceTypeStr = "Mouse";    break;
+    case RIM_TYPEKEYBOARD: deviceTypeStr = "Keyboard"; break;
+    case RIM_TYPEHID:      deviceTypeStr = "HID";      break;
+    }
+
+    DBGPRINT("Disconnected %s device. Handle=0x%08x, Path: %s", deviceTypeStr.c_str(), deviceHandle, it->second->GetInterfacePath().c_str());
     CHECK(m_Devices.erase(deviceHandle));
 }
 
@@ -284,24 +318,42 @@ void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 {
-    CHECK(input);
+    HANDLE hDevice = input->header.hDevice;
+    RawInputDevice* target = nullptr;
 
-    if (!input)
-        return;
-
-    UINT rimCode = GET_RAWINPUT_CODE_WPARAM(input->header.wParam);
-    DCHECK(rimCode == RIM_INPUT || rimCode == RIM_INPUTSINK);
-
-    if (RawInputDevice* device = FindDevice(input->header.dwType, input->header.hDevice))
+    if (hDevice != NULL)
     {
-        device->OnInput(input);
-    }
-    else
-    {
-        DBGPRINT("Cannot process input. Device 0x%x of type %d is not found", input->header.hDevice, input->header.dwType);
+        auto it = m_Devices.find(hDevice);
+        if (it != m_Devices.end())
+            target = it->second.get();
     }
 
-    //Sleep(10);
+    switch (input->header.dwType)
+    {
+    case RIM_TYPEKEYBOARD:
+        if (target && target != m_DefaultKeyboard.get())
+            m_DefaultKeyboard->OnInput(input);
+        break;
+    case RIM_TYPEMOUSE:
+        if (target && target != m_DefaultMouse.get())
+            m_DefaultMouse->OnInput(input);
+        break;
+    }
+
+	// Fall back to default devices if the target device is not found.
+    // This can happen when the handle is not provided.
+    // See https://stackoverflow.com/q/57552844
+    if (target == nullptr)
+    {
+        switch (input->header.dwType)
+        {
+        case RIM_TYPEKEYBOARD: target = m_DefaultKeyboard.get(); break;
+        case RIM_TYPEMOUSE:    target = m_DefaultMouse.get();    break;
+        }
+    }
+
+    if (target)
+        target->OnInput(input);
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
@@ -315,31 +367,6 @@ std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::Crea
 
     DBGPRINT("Unknown device type %d.", deviceType);
     return nullptr;
-}
-
-RawInputDevice* RawInputDeviceManager::RawInputManagerImpl::FindDevice(DWORD deviceType, HANDLE deviceHandle) const
-{
-    if (deviceHandle)
-    {
-        auto it = m_Devices.find(deviceHandle);
-        if (it == m_Devices.end())
-            return nullptr;
-        return it->second.get();
-    }
-
-    // In some cases the handle is not provided.
-    // Fall back to the first device of the matching type.
-    // See https://stackoverflow.com/q/57552844
-    auto it = std::find_if(m_Devices.begin(), m_Devices.end(),
-        [deviceType](const decltype(m_Devices)::const_reference& device)
-        {
-            return device.second->GetType() == deviceType;
-        });
-
-    if (it == m_Devices.end())
-        return nullptr;
-
-    return it->second.get();
 }
 
 RawInputDeviceManager::RawInputDeviceManager()
@@ -364,4 +391,14 @@ std::vector<std::shared_ptr<RawInputDevice>> RawInputDeviceManager::GetRawInputD
         devices.emplace_back(dev.second.get());
 
     return devices;
+}
+
+RawInputDeviceKeyboard* RawInputDeviceManager::GetDefaultKeyboard() const
+{
+    return m_RawInputManagerImpl->m_DefaultKeyboard.get();
+}
+
+RawInputDeviceMouse* RawInputDeviceManager::GetDefaultMouse() const
+{
+    return m_RawInputManagerImpl->m_DefaultMouse.get();
 }

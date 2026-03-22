@@ -206,12 +206,20 @@ namespace HID
 
 RawInputDeviceKeyboard::RawInputDeviceKeyboard(HANDLE handle)
     : RawInputDevice(handle)
+    , m_CurrentHKL(GetKeyboardLayout(0))
 {
+    if (handle == NULL)
+    {
+        m_InterfacePath = "Default Mouse";
+        m_Identity.product = "Default Keyboard";
+        m_IsValid = true; // Virtual keyboard device without a real handle.
+        return;
+    }
+
     m_IsValid = QueryDeviceInfo();
 
     //DBGPRINT("New Keyboard device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 
-	m_CurrentHKL = GetKeyboardLayout(0);
 }
 
 RawInputDeviceKeyboard::~RawInputDeviceKeyboard()
@@ -393,10 +401,14 @@ bool RawInputDeviceKeyboard::QueryDeviceInfo()
     }
 
     // Seems only HID keyboard does support this
-    if (IsHidDevice() && !m_ExtendedKeyboardInfo.QueryInfo(m_InterfaceHandle))
+    if (IsHidDevice())
     {
-        DBGPRINT("Cannot get Extended Keyboard info from: %s", m_InterfacePath.c_str());
-        return false;
+        ScopedHandle hidHandle = OpenDeviceInterface(m_InterfacePath, m_IsInterfaceReadOnly);
+        if (!hidHandle || !m_ExtendedKeyboardInfo.QueryInfo(hidHandle))
+        {
+            DBGPRINT("Cannot get Extended Keyboard info from: %s", m_InterfacePath.c_str());
+            return false;
+        }
 
     }
 

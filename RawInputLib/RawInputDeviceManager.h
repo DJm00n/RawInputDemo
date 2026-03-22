@@ -1,6 +1,8 @@
 #pragma once
 
 #include "RawInputDevice.h"
+#include "RawInputDeviceKeyboard.h"
+#include "RawInputDeviceMouse.h"
 
 class RawInputDeviceManager
 {
@@ -16,6 +18,9 @@ public:
     void OnInputLanguageChanged(HKL hkl);
 
     std::vector<std::shared_ptr<RawInputDevice>> GetRawInputDevices() const;
+
+    RawInputDeviceKeyboard* GetDefaultKeyboard() const;
+    RawInputDeviceMouse* GetDefaultMouse() const;
 
 private:
     struct RawInputManagerImpl;

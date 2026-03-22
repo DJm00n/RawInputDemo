@@ -2,41 +2,122 @@
 #include "framework.h"
 
 #include "RawInputDeviceHid.h"
+//#include "RawInputDeviceGamepad.h"
+//#include "RawInputDeviceWheel.h"
 #include "CfgMgr32Wrapper.h"
 
 #include <hidusage.h>
-
 #include <winioctl.h>
 #include <usbioctl.h>
 
 namespace
 {
-    unsigned long GetBitmask(unsigned short bits)
+    // DI: lMask = ~((1 << (BitSize-1)) - 1)
+    int32_t SignMask(uint16_t bitSize)
     {
-        return static_cast<unsigned long>(1 << bits) - 1;
+        if (bitSize == 0 || bitSize >= 32)
+            return 0;
+        return ~((1 << (bitSize - 1)) - 1);
     }
-}
+
+    // Linear map [logMin, logMax] → [-1, +1].
+    float NormaliseAxis(int32_t v, int32_t logMin, int32_t logMax)
+    {
+        const int32_t range = logMax - logMin;
+        if (range == 0)
+            return 0.f;
+        return std::clamp(2.f * static_cast<float>(v - logMin) / range - 1.f,
+            -1.f, 1.f);
+    }
+
+    // DI: hat iff single usage == HatSwitch or Game POV.
+    constexpr uint16_t kGamePOVUsage = 0x20;
+
+    bool IsPOV(const HIDP_VALUE_CAPS& vc)
+    {
+        if (vc.IsRange)
+            return false;
+        const auto u = static_cast<uint16_t>(vc.NotRange.Usage);
+        return (vc.UsagePage == HID_USAGE_PAGE_GENERIC && u == HID_USAGE_GENERIC_HATSWITCH)
+            || (vc.UsagePage == HID_USAGE_PAGE_GAME && u == kGamePOVUsage);
+    }
+
+    struct ParsedRange { int32_t lMin, lMax, mask; bool isSigned; };
+
+    ParsedRange ParseLogicalRange(const HIDP_VALUE_CAPS& vc)
+    {
+        const int32_t signMask = SignMask(vc.BitSize);
+        const int32_t unsignedMax = std::max(1, (1 << vc.BitSize) - 1);
+
+        if (vc.LogicalMin == 0 && vc.LogicalMax == 0)
+            return { 0, unsignedMax, unsignedMax, false };
+
+        if (vc.LogicalMin >= signMask && vc.LogicalMax <= ~signMask)
+            return { vc.LogicalMin, vc.LogicalMax, signMask, true };
+
+        if (vc.LogicalMin >= 0 && vc.LogicalMax <= unsignedMax)
+            return { vc.LogicalMin, vc.LogicalMax, unsignedMax, false };
+
+        return { signMask, ~signMask, signMask, true }; // bad firmware
+    }
+} // namespace
 
 // static
 std::unique_ptr<RawInputDevice> RawInputDeviceHid::Create(HANDLE handle)
 {
-    UINT size = 0;
-    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, nullptr, &size)
-        != 0 || size == 0)
-        return nullptr;
-
-    auto buf = std::make_unique<uint8_t[]>(size);
-    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, buf.get(), &size)
-        != size)
-        return nullptr;
-
-    auto* ppd = reinterpret_cast<PHIDP_PREPARSED_DATA>(buf.get());
+	PreparsedData preparsedData;
+    if (!preparsedData.Load(handle))
+		return nullptr;
 
     HIDP_CAPS caps{};
-    if (HidP_GetCaps(ppd, &caps) != HIDP_STATUS_SUCCESS)
+    if (HidP_GetCaps(preparsedData.data, &caps) != HIDP_STATUS_SUCCESS)
         return nullptr;
 
+    /*
+    if (caps.UsagePage == HID_USAGE_PAGE_GENERIC)
+    {
+        switch (caps.Usage)
+        {
+        case HID_USAGE_GENERIC_GAMEPAD:
+        case HID_USAGE_GENERIC_JOYSTICK:
+            return std::unique_ptr<RawInputDevice>(new RawInputDeviceGamepad(handle));
+        default:
+            break;
+        }
+    }
+    else if (caps.UsagePage == HID_USAGE_PAGE_SIMULATION)
+    {
+        // Steering axis present → wheel; otherwise treat as gamepad.
+        USHORT n = 0;
+        HidP_GetSpecificValueCaps(HidP_Input,
+            HID_USAGE_PAGE_SIMULATION, 0,
+            HID_USAGE_SIMULATION_STEERING,
+            nullptr, &n, ppd);
+
+        if (n > 0)
+            return std::unique_ptr<RawInputDevice>(new RawInputDeviceWheel(handle));
+        else
+            return std::unique_ptr<RawInputDevice>(new RawInputDeviceGamepad(handle));
+    }*/
+
     return std::unique_ptr<RawInputDevice>(new RawInputDeviceHid(handle));
+}
+
+bool RawInputDeviceHid::PreparsedData::Load(HANDLE handle)
+{
+    UINT size = 0;
+    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, nullptr, &size) != 0 || size == 0)
+        return false;
+
+    buffer = std::make_unique<uint8_t[]>(size);
+    data = reinterpret_cast<PHIDP_PREPARSED_DATA>(buffer.get());
+    if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, buffer.get(), &size) != size)
+    {
+        buffer.reset();
+        data = nullptr;
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,122 +130,143 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     //DBGPRINT("New HID device Interface: %s", GetInterfacePath().c_str());
 }
 
-RawInputDeviceHid::~RawInputDeviceHid()
-{
-    //DBGPRINT("Removed HID device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
-}
+RawInputDeviceHid::~RawInputDeviceHid() = default;
 
-inline void HexDump2(const uint8_t* src, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        std::cout << std::format("{:02d} ", src[i]);
-    }
-    std::cout << std::format("({} bytes)\n", (int)len);
-}
+// ---------------------------------------------------------------------------
+// OnInput
+// ---------------------------------------------------------------------------
 
 void RawInputDeviceHid::OnInput(const RAWINPUT* input)
 {
-    //TODO
-
-    if (input == nullptr || input->header.dwType != RIM_TYPEHID)
+    if (!input || input->header.dwType != RIM_TYPEHID)
     {
         DBGPRINT("Wrong HID input.");
         return;
     }
 
-    //const RAWHID& hid = input->data.hid;
+    const RAWHID& raw = input->data.hid;
+    if (m_InputReport.maxCount == 0)
+        return;
 
-    /*for (DWORD i = 0; i < hid.dwCount; ++i)
+    for (uint32_t ri = 0; ri < raw.dwCount; ++ri)
     {
-        size_t reportSize = hid.dwSizeHid;
-        const uint8_t* report = (hid.bRawData + (i * reportSize));
+        const uint8_t* src = raw.bRawData + static_cast<size_t>(ri) * raw.dwSizeHid;
+        const uint32_t len = raw.dwSizeHid;
 
-        fmt::print("HID Input Report:\n");
-        HexDump2(report, reportSize);
-    }*/
+        uint32_t count = m_InputReport.maxCount;
+        const NTSTATUS st = HidP_GetData(
+            HidP_Input,
+            m_InputReport.parsedData.data(),
+            reinterpret_cast<ULONG*>(&count),
+            m_PreparsedData.data,
+            const_cast<PCHAR>(reinterpret_cast<const char*>(src)), // read-only, API wart
+            static_cast<ULONG>(len));
+
+        if (st != HIDP_STATUS_SUCCESS && st != HIDP_STATUS_BUFFER_TOO_SMALL)
+            continue;
+
+        // DI rule: buttons / hats absent from the report are released/centred;
+        // axes keep their previous value.
+        //
+        // When multiple Report IDs exist, only clear buttons that belong to
+        // this specific report — other reports' buttons stay as-is.
+        // DI: rgpbButtonMasks[] (dihidini.c).
+        const uint8_t reportId = src[0]; // Report ID is always first byte
+        if (m_ButtonReportMasks.empty())
+        {
+            // Fast path: single Report ID, clear all buttons.
+            std::fill(std::begin(m_Buttons), std::begin(m_Buttons) + m_ButtonsLength, false);
+        }
+        else if (auto it = m_ButtonReportMasks.find(reportId); it != m_ButtonReportMasks.end())
+        {
+            const std::vector<bool>& mask = it->second;
+            for (size_t i = 0; i < m_ButtonsLength; ++i)
+                if (mask[i])
+                    m_Buttons[i] = false;
+        }
+
+        for (size_t i = 0; i < m_HatsLength; ++i)
+            m_Hats[i].value = -1;
+
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const HIDP_DATA& d = m_InputReport.parsedData[i];
+
+            if (d.DataIndex >= m_DataIndexTable.size())
+                continue;
+
+            const DataIndexEntry& e = m_DataIndexTable[d.DataIndex];
+
+            switch (e.kind)
+            {
+            case Kind::Axis:
+            {
+                AxisState& ax = m_Axes[e.index];
+                int32_t lv = static_cast<int32_t>(d.RawValue);
+
+                // Sign-extend if top bit of BitSize-wide field is set.
+                // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
+                if (ax.signMask && (lv & ax.signMask))
+                    lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
+
+                ax.value = ax.isAbsolute
+                    ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
+                    : ax.value + static_cast<float>(lv);
+                break;
+            }
+            case Kind::Hat:
+            {
+                HatState& hat = m_Hats[e.index];
+                const int32_t lv = static_cast<int32_t>(d.RawValue);
+
+                hat.value = (lv < hat.logicalMin || lv > hat.logicalMax)
+                    ? -1
+                    : (lv - hat.logicalMin) * hat.povGranularity;
+                break;
+            }
+            case Kind::Button:
+                m_Buttons[e.index] = (d.On != 0);
+                break;
+
+            case Kind::None:
+                break;
+            }
+        }
+    }
 }
+
+// ---------------------------------------------------------------------------
+// QueryDeviceInfo
+// ---------------------------------------------------------------------------
 
 bool RawInputDeviceHid::QueryDeviceInfo()
 {
     if (!RawInputDevice::QueryDeviceInfo())
         return false;
 
-    // We can now use the name to query the OS for a file handle that is used to
-    // read the product string from the device. If the OS does not return a valid
-    // handle this device is invalid.
-    if (!IsValidHandle(m_InterfaceHandle.get()))
-        return false;
-
-    // Fetch information about the buttons and axes on this device. This sets
-    // |m_ButtonsLength| and |m_AxesLength| to their correct values and populates
-    // |m_Axes| with capabilities info.
     if (!QueryDeviceCapabilities())
         return false;
-
-    // Gamepads must have at least one button or axis.
-    //if (m_ButtonsLength == 0 && m_AxesLength == 0)
-    //    return false;
-
-    // optional XInput device info
-    if (QueryXInputDeviceInterface() && !QueryXInputDeviceInfo())
-    {
-        DBGPRINT("Cannot get XInput info from '%s' interface.", m_XInputInterfacePath.c_str());
-        return false;
-    }
-
-    // optional Xbox One GIP device info
-    if (QueryXboxGIPDeviceInterface() && !QueryXboxGIPDeviceInfo())
-    {
-        DBGPRINT("Cannot get Xbox One GIP info from '%s' interface.", m_XboxGipInterfacePath.c_str());
-        return false;
-    }
-
-    // optional Bluetooth LE device info
-    if (QueryBluetoothLEDeviceInterface() && !QueryBluetoothLEDeviceInfo())
-    {
-        DBGPRINT("Cannot get Bluetooth LE info from '%s' interface.", m_BluetoothLEInterfacePath.c_str());
-        return false;
-    }
-
-    std::string parentDeviceInstanceId = GetParentDevice(m_DeviceInstanceId);
-    parentDeviceInstanceId = GetParentDevice(parentDeviceInstanceId);
-    DEVINST devNodeHandle = OpenDevNode(parentDeviceInstanceId);
-    auto deviceStack = PropertyDataCast<std::vector<std::string>>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Stack, DEVPROP_TYPE_STRING_LIST));
-
-    auto busTypeGuid = PropertyDataCast<GUID>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_BusTypeGuid, DEVPROP_TYPE_GUID));
-
-    auto devClass = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_Device_Class, DEVPROP_TYPE_STRING));
 
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// QueryDeviceCapabilities
+// ---------------------------------------------------------------------------
+
 bool RawInputDeviceHid::QueryDeviceCapabilities()
 {
-    UINT size = 0;
-
-    UINT result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_PREPARSEDDATA, nullptr, &size);
-    if (result == static_cast<UINT>(-1))
-    {
-        //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
-        return false;
-    }
-    DCHECK_EQ(0u, result);
-
-    m_PPDBuffer = std::make_unique<uint8_t[]>(size);
-    m_PreparsedData = reinterpret_cast<PHIDP_PREPARSED_DATA>(m_PPDBuffer.get());
-    result = ::GetRawInputDeviceInfoW(m_Handle, RIDI_PREPARSEDDATA, m_PPDBuffer.get(), &size);
-    if (result == static_cast<UINT>(-1))
-    {
-        //PLOG(ERROR) << "GetRawInputDeviceInfo() failed";
-        return false;
-    }
-    DCHECK_EQ(size, result);
+	if (!m_PreparsedData.Load(m_Handle))
+		return false;
 
     HIDP_CAPS caps;
-    NTSTATUS status = HidP_GetCaps(m_PreparsedData, &caps);
-    DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
+    if (HidP_GetCaps(m_PreparsedData.data, &caps) != HIDP_STATUS_SUCCESS)
+        return false;
 
     m_UsagePage = caps.UsagePage;
     m_UsageId = caps.Usage;
+
+    m_DataIndexTable.assign(caps.NumberInputDataIndices, {});
 
     if (caps.NumberInputButtonCaps > 0)
         QueryButtonCapabilities(caps.NumberInputButtonCaps);
@@ -172,292 +274,188 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     if (caps.NumberInputValueCaps > 0)
         QueryAxisCapabilities(caps.NumberInputValueCaps);
 
+    m_InputReport.maxCount = static_cast<uint32_t>(
+        HidP_MaxDataListLength(HidP_Input, m_PreparsedData.data));
+    m_InputReport.parsedData.resize(m_InputReport.maxCount);
+
     return true;
 }
 
-void RawInputDeviceHid::QueryButtonCapabilities(uint16_t button_count)
+// ---------------------------------------------------------------------------
+// QueryButtonCapabilities
+// ---------------------------------------------------------------------------
+
+void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
 {
-    if (button_count > 0)
+    auto caps = std::make_unique<HIDP_BUTTON_CAPS[]>(count);
+    DCHECK_EQ(HIDP_STATUS_SUCCESS,
+        HidP_GetButtonCaps(HidP_Input, caps.get(), &count, m_PreparsedData.data));
+
+    // First pass: collect unique Report IDs to decide if we need per-ID masks.
+    // If all buttons share the same Report ID (common case), we skip the mask.
+    uint8_t firstReportId = 0;
+    bool    multipleReportIds = false;
+
+    for (uint16_t i = 0; i < count; ++i)
     {
-        auto button_caps = std::make_unique<HIDP_BUTTON_CAPS[]>(button_count);
-
-        NTSTATUS status = HidP_GetButtonCaps(HidP_Input, button_caps.get(), &button_count, m_PreparsedData);
-        DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
-
-        // Keep track of which button indices are in use.
-        std::vector<bool> button_indices_used(kButtonsLengthCap, false);
-
-        // Collect all inputs from the Button usage page.
-        QueryNormalButtonCapabilities(button_caps.get(), button_count, &button_indices_used);
-    }
-}
-
-void RawInputDeviceHid::QueryNormalButtonCapabilities(HIDP_BUTTON_CAPS button_caps[], uint16_t button_count, std::vector<bool> * button_indices_used)
-{
-    DCHECK(button_caps);
-    DCHECK(button_indices_used);
-
-    // Collect all inputs from the Button usage page and assign button indices
-    // based on the usage value.
-    for (size_t i = 0; i < button_count; ++i)
-    {
-        uint16_t usage_page = button_caps[i].UsagePage;
-        uint16_t usage_min = button_caps[i].Range.UsageMin;
-        uint16_t usage_max = button_caps[i].Range.UsageMax;
-
-        if (usage_min == 0 || usage_max == 0)
+        const HIDP_BUTTON_CAPS& bc = caps[i];
+        if (bc.UsagePage != HID_USAGE_PAGE_BUTTON)
             continue;
 
-        size_t button_index_min = usage_min - 1;
-        size_t button_index_max = usage_max - 1;
-        if (usage_page == HID_USAGE_PAGE_BUTTON && button_index_min < kButtonsLengthCap)
+        if (firstReportId == 0)
+            firstReportId = bc.ReportID;
+        else if (bc.ReportID != firstReportId)
+            multipleReportIds = true;
+    }
+
+    // Second pass: register each button in the dispatch table.
+    for (uint16_t i = 0; i < count; ++i)
+    {
+        const HIDP_BUTTON_CAPS& bc = caps[i];
+        if (bc.UsagePage != HID_USAGE_PAGE_BUTTON)
+            continue;
+
+        const uint16_t uMin = bc.IsRange ? bc.Range.UsageMin : bc.NotRange.Usage;
+        const uint16_t uMax = bc.IsRange ? bc.Range.UsageMax : bc.NotRange.Usage;
+        const uint16_t diMin = bc.Range.DataIndexMin;
+        const uint16_t diMax = bc.Range.DataIndexMax;
+
+        if (uMin == 0 || uMax == 0)
+            continue;
+
+        for (uint16_t di = diMin; di <= diMax; ++di)
         {
-            button_index_max = std::min(kButtonsLengthCap - 1, button_index_max);
-            m_ButtonsLength = std::max(m_ButtonsLength, button_index_max + 1);
-            for (size_t j = button_index_min; j <= button_index_max; ++j)
-                (*button_indices_used)[j] = true;
+            const size_t slot = static_cast<size_t>(uMin - 1)
+                + static_cast<size_t>(di - diMin);
+
+            if (slot >= kButtonsLengthCap || di >= m_DataIndexTable.size())
+                continue;
+
+            m_DataIndexTable[di] = { Kind::Button,
+                                     static_cast<uint8_t>(slot),
+                                     bc.ReportID };
+            m_ButtonsLength = std::max(m_ButtonsLength, slot + 1);
+
+            // Build the per-Report-ID reset mask if needed.
+            // DI: rgpbButtonMasks[] — each mask is a bitset over the button array.
+            // On receive of report R, we AND m_Buttons[i] with ~mask[R][i],
+            // zeroing only the buttons that belong to R.
+            if (multipleReportIds)
+            {
+                auto& mask = m_ButtonReportMasks[bc.ReportID];
+                if (mask.size() <= slot)
+                    mask.resize(slot + 1, false);
+                mask[slot] = true;
+            }
         }
+    }
+
+    // Make sure all masks cover the full button range.
+    if (multipleReportIds)
+    {
+        for (auto& [id, mask] : m_ButtonReportMasks)
+            mask.resize(m_ButtonsLength, false);
     }
 }
 
-void RawInputDeviceHid::QueryAxisCapabilities(uint16_t axis_count)
+// ---------------------------------------------------------------------------
+// QueryAxisCapabilities
+// ---------------------------------------------------------------------------
+
+void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
 {
-    auto axes = std::make_unique<HIDP_VALUE_CAPS[]>(axis_count);
+    auto rawCaps = std::make_unique<HIDP_VALUE_CAPS[]>(count);
+    DCHECK_EQ(HIDP_STATUS_SUCCESS,
+        HidP_GetValueCaps(HidP_Input, rawCaps.get(), &count, m_PreparsedData.data));
 
-    NTSTATUS status = HidP_GetValueCaps(HidP_Input, axes.get(), &axis_count, m_PreparsedData);
+    std::bitset<kAxesLengthCap> axisSlotUsed;
+    size_t nextFreeHat = 0;
 
-    DCHECK_EQ(HIDP_STATUS_SUCCESS, status);
-
-    bool mapped_all_axes = true;
-
-    for (size_t i = 0; i < axis_count; i++)
+    for (uint16_t i = 0; i < count; ++i)
     {
-        size_t axis_index = axes[i].Range.UsageMin - HID_USAGE_GENERIC_X;
-        if (axis_index < kAxesLengthCap && !m_Axes[axis_index].active)
+        const HIDP_VALUE_CAPS& vc = rawCaps[i];
+
+        // ---- hat ----
+        if (IsPOV(vc) && nextFreeHat < kHatsLengthCap)
         {
-            m_Axes[axis_index].caps = axes[i];
-            m_Axes[axis_index].value = 0;
-            m_Axes[axis_index].active = true;
-            m_Axes[axis_index].bitmask = GetBitmask(axes[i].BitSize);
-            m_AxesLength = std::max(m_AxesLength, axis_index + 1);
+            const auto [lMin, lMax, mask, signed_] = ParseLogicalRange(vc);
+            const size_t hatIdx = nextFreeHat++;
+
+            HatState& hat = m_Hats[hatIdx];
+            hat.logicalMin = lMin;
+            hat.logicalMax = lMax;
+            hat.value = -1;
+
+            const int32_t lUnits = lMax - lMin + 1;
+            hat.povGranularity = (lUnits > 0)
+                ? static_cast<uint16_t>(36000u / static_cast<uint32_t>(lUnits))
+                : 0u;
+
+            m_HatsLength = nextFreeHat;
+
+            const uint16_t di = static_cast<uint16_t>(
+                vc.IsRange ? vc.Range.DataIndexMin : vc.NotRange.DataIndex);
+
+            if (di < m_DataIndexTable.size())
+                m_DataIndexTable[di] = { Kind::Hat,
+                                         static_cast<uint8_t>(hatIdx),
+                                         vc.ReportID };
+            continue;
+        }
+
+        // ---- axis ----
+        const uint16_t usageMin = static_cast<uint16_t>(
+            vc.IsRange ? vc.Range.UsageMin : vc.NotRange.Usage);
+
+        const size_t prefSlot = (usageMin >= HID_USAGE_GENERIC_X)
+            ? static_cast<size_t>(usageMin - HID_USAGE_GENERIC_X)
+            : kAxesLengthCap;
+
+        size_t slot = kAxesLengthCap;
+        if (prefSlot < kAxesLengthCap && !axisSlotUsed[prefSlot])
+        {
+            slot = prefSlot;
         }
         else
         {
-            mapped_all_axes = false;
+            for (size_t s = 0; s < kAxesLengthCap; ++s)
+                if (!axisSlotUsed[s]) { slot = s; break; }
         }
+
+        if (slot >= kAxesLengthCap)
+            continue;
+
+        axisSlotUsed.set(slot);
+
+        const auto [lMin, lMax, mask, isSigned] = ParseLogicalRange(vc);
+
+        AxisState& ax = m_Axes[slot];
+        ax.logicalMin = lMin;
+        ax.logicalMax = lMax;
+        ax.signMask = mask;
+        ax.isSigned = isSigned;
+        ax.isAbsolute = (vc.IsAbsolute != FALSE);
+        ax.value = 0.f;
+
+        // Metadata for subclasses
+        ax.usagePage = vc.UsagePage;
+        ax.usage = usageMin;
+        ax.physicalMin = vc.PhysicalMin;
+        ax.physicalMax = vc.PhysicalMax;
+        ax.units = vc.Units;
+        ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
+
+        m_AxesLength = std::max(m_AxesLength, slot + 1);
+
+        const uint16_t diMin = static_cast<uint16_t>(
+            vc.IsRange ? vc.Range.DataIndexMin : vc.NotRange.DataIndex);
+        const uint16_t diMax = static_cast<uint16_t>(
+            vc.IsRange ? vc.Range.DataIndexMax : vc.NotRange.DataIndex);
+
+        for (uint16_t di = diMin; di <= diMax; ++di)
+            if (di < m_DataIndexTable.size())
+                m_DataIndexTable[di] = { Kind::Axis,
+                                         static_cast<uint8_t>(slot),
+                                         vc.ReportID };
     }
-
-    if (!mapped_all_axes)
-    {
-        // For axes whose usage puts them outside the standard axesLengthCap range.
-        size_t next_index = 0;
-        for (size_t i = 0; i < axis_count; i++)
-        {
-            size_t usage = axes[i].Range.UsageMin - HID_USAGE_GENERIC_X;
-            if (usage >= kAxesLengthCap &&
-                axes[i].UsagePage <= HID_USAGE_PAGE_GAME)
-            {
-                for (; next_index < kAxesLengthCap; ++next_index)
-                {
-                    if (!m_Axes[next_index].active)
-                        break;
-                }
-                if (next_index < kAxesLengthCap)
-                {
-                    m_Axes[next_index].caps = axes[i];
-                    m_Axes[next_index].value = 0;
-                    m_Axes[next_index].active = true;
-                    m_Axes[next_index].bitmask = GetBitmask(axes[i].BitSize);
-                    m_AxesLength = std::max(m_AxesLength, next_index + 1);
-                }
-            }
-
-            if (next_index >= kAxesLengthCap)
-                break;
-        }
-    }
-}
-
-bool RawInputDeviceHid::QueryXInputDeviceInterface()
-{
-    DCHECK(IsValidHandle(m_InterfaceHandle.get()));
-
-    // https://docs.microsoft.com/windows/win32/xinput/xinput-and-directinput
-    stringutils::ci_string tmp(m_InterfacePath.c_str(), m_InterfacePath.size());
-    if (tmp.find("IG_") == stringutils::ci_string::npos)
-        return false;
-
-    // Xbox 360 XUSB Interface
-    // {EC87F1E3-C13B-4100-B5F7-8B84D54260CB}
-    static constexpr GUID XUSB_INTERFACE_CLASS_GUID = { 0xEC87F1E3, 0xC13B, 0x4100, { 0xB5, 0xF7, 0x8B, 0x84, 0xD5, 0x42, 0x60, 0xCB } };
-
-    m_XInputInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &XUSB_INTERFACE_CLASS_GUID);
-
-    return !m_XInputInterfacePath.empty();
-}
-
-bool RawInputDeviceHid::QueryXInputDeviceInfo()
-{
-    if (m_XInputInterfacePath.empty())
-        return false;
-
-    std::string deviceInstanceId = GetDeviceFromInterface(m_XInputInterfacePath);
-
-    ScopedHandle XInputInterfaceHandle = OpenDeviceInterface(m_XInputInterfacePath);
-
-    if (!IsValidHandle(XInputInterfaceHandle.get()))
-        return false;
-
-    std::array<uint8_t, 3> gamepadStateRequest0101{ 0x01, 0x01, 0x00 };
-    std::array<uint8_t, 3> ledStateData;
-    DWORD len = 0;
-
-    // https://github.com/nefarius/XInputHooker/issues/1
-    // https://gist.github.com/mmozeiko/b8ccc54037a5eaf35432396feabbe435
-    constexpr DWORD IOCTL_XUSB_GET_LED_STATE = 0x8000E008;
-
-    if (!::DeviceIoControl(XInputInterfaceHandle.get(),
-        IOCTL_XUSB_GET_LED_STATE,
-        gamepadStateRequest0101.data(),
-        static_cast<DWORD>(gamepadStateRequest0101.size()),
-        ledStateData.data(),
-        static_cast<DWORD>(ledStateData.size()),
-        &len,
-        nullptr))
-    {
-        // GetLastError()
-        return false;
-    }
-
-    DCHECK_EQ(len, ledStateData.size());
-
-    // https://www.partsnotincluded.com/xbox-360-controller-led-animations-info/
-    // https://github.com/paroj/xpad/blob/5978d1020344c3288701ef70ea9a54dfc3312733/xpad.c#L1382-L1402
-    constexpr uint8_t XINPUT_LED_TO_PORT_MAP[] =
-    {
-        kInvalidXInputUserId,   // All off
-        kInvalidXInputUserId,   // All blinking, then previous setting
-        0,                      // 1 flashes, then on
-        1,                      // 2 flashes, then on
-        2,                      // 3 flashes, then on
-        3,                      // 4 flashes, then on
-        0,                      // 1 on
-        1,                      // 2 on
-        2,                      // 3 on
-        3,                      // 4 on
-        kInvalidXInputUserId,   // Rotate
-        kInvalidXInputUserId,   // Blink, based on previous setting
-        kInvalidXInputUserId,   // Slow blink, based on previous setting
-        kInvalidXInputUserId,   // Rotate with two lights
-        kInvalidXInputUserId,   // Persistent slow all blink
-        kInvalidXInputUserId,   // Blink once, then previous setting
-    };
-
-    const uint8_t ledState = ledStateData[2];
-
-    DCHECK_LE(ledState, std::size(XINPUT_LED_TO_PORT_MAP));
-
-    m_XInputUserIndex = XINPUT_LED_TO_PORT_MAP[ledState];
-
-    return true;
-}
-
-bool RawInputDeviceHid::QueryXboxGIPDeviceInterface()
-{
-    DCHECK(IsValidHandle(m_InterfaceHandle.get()));
-
-    // Xbox One GIP Interface
-    // {020BC73C-0DCA-4EE3-96D5-AB006ADA5938}
-    static constexpr GUID GUID_DEVINTERFACE_DC1_CONTROLLER = { 0x020BC73C, 0x0DCA, 0x4EE3, { 0x96, 0xD5, 0xAB, 0x00, 0x6A, 0xDA, 0x59, 0x38 } };
-
-    m_XboxGipInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_DEVINTERFACE_DC1_CONTROLLER);
-
-    return !m_XboxGipInterfacePath.empty();
-}
-
-bool RawInputDeviceHid::QueryXboxGIPDeviceInfo()
-{
-    // Test for XBOXGIP driver software PID
-    if (!(m_VendorId == 0x045E && m_ProductId == 0x02FF))
-        return false;
-
-    /*std::string deviceInstanceId = GetDeviceFromInterface(m_XboxGipInterfacePath);
-
-    // Get Vendor ID and Product ID from a real USB device
-    // https://docs.microsoft.com/windows-hardware/drivers/install/standard-usb-identifiers
-    unsigned int vid, pid;
-    std::array<char, 50> serial = { 0 };
-    ::sscanf(deviceInstanceId.c_str(), "USB\\VID_%04X&PID_%04X\\%s", &vid, &pid, serial.data());
-
-    m_VendorId = static_cast<uint16_t>(vid);
-    m_ProductId = static_cast<uint16_t>(pid);
-    */
-
-    std::string serial = m_UsbDevice->m_SerialNumber;
-
-    size_t serialLen = ::strlen(serial.data());
-    if (serialLen <= 12)
-    {
-        m_SerialNumberString.assign(serial.data(), serialLen);
-    }
-    else
-    {
-        // Serial number is in odd format
-        for (int i = 0; i < serialLen; ++i)
-        {
-            if (i % 2 != 0)
-                m_SerialNumberString.push_back(serial[i]);
-        }
-    }
-
-    m_VendorId = m_UsbDevice->m_VendorId;
-    m_ProductId = m_UsbDevice->m_ProductId;
-    m_VersionNumber = m_UsbDevice->m_VersionNumber;
-
-    return true;
-}
-
-bool RawInputDeviceHid::QueryBluetoothLEDeviceInterface()
-{
-    DCHECK(IsValidHandle(m_InterfaceHandle.get()));
-
-    // GATT Service 0x1812 Human Interface Device
-    // https://www.bluetooth.com/specifications/assigned-numbers/
-    stringutils::ci_string tmp(m_InterfacePath.c_str(), m_InterfacePath.size());
-    if (tmp.find("{00001812-0000-1000-8000-00805f9b34fb}") == stringutils::ci_string::npos)
-        return false;
-
-    // Bluetooth LE Service device interface GUID
-    // {6e3bb679-4372-40c8-9eaa-4509df260cd8}
-    static constexpr GUID GUID_BLUETOOTH_GATT_SERVICE_DEVICE_INTERFACE = { 0x6e3bb679, 0x4372, 0x40c8, { 0x9e, 0xaa, 0x45, 0x09, 0xdf, 0x26, 0x0c, 0xd8} };
-
-    m_BluetoothLEInterfacePath = SearchParentDeviceInterface(m_DeviceInstanceId, &GUID_BLUETOOTH_GATT_SERVICE_DEVICE_INTERFACE);
-
-    return !m_BluetoothLEInterfacePath.empty();
-}
-
-bool RawInputDeviceHid::QueryBluetoothLEDeviceInfo()
-{
-    if (m_BluetoothLEInterfacePath.empty())
-        return false;
-
-    std::string deviceInstanceId = GetDeviceFromInterface(m_BluetoothLEInterfacePath);
-    DEVINST devNodeHandle = OpenDevNode(deviceInstanceId);
-
-    m_ProductString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &DEVPKEY_NAME, DEVPROP_TYPE_STRING));
-
-    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_DeviceAddress = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 1 }; // DEVPROP_TYPE_STRING
-    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_Manufacturer = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 4 }; // DEVPROP_TYPE_STRING
-    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_VendorId = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 7 }; // DEVPROP_TYPE_UINT16
-    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_ProductId = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 8 }; // DEVPROP_TYPE_UINT16
-    static constexpr DEVPROPKEY PKEY_DeviceInterface_Bluetooth_ProductVersion = { { 0x2BD67D8B, 0x8BEB, 0x48D5, 0x87, 0xE0, 0x6C, 0xDA, 0x34, 0x28, 0x04, 0x0A }, 9 }; // DEVPROP_TYPE_UINT16
-
-    m_ManufacturerString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_Manufacturer, DEVPROP_TYPE_STRING));
-    m_SerialNumberString = PropertyDataCast<std::string>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_DeviceAddress, DEVPROP_TYPE_STRING));
-
-    m_VendorId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_VendorId, DEVPROP_TYPE_UINT16));
-    m_ProductId = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_ProductId, DEVPROP_TYPE_UINT16));
-    m_VersionNumber = PropertyDataCast<uint16_t>(GetDevNodeProperty(devNodeHandle, &PKEY_DeviceInterface_Bluetooth_ProductVersion, DEVPROP_TYPE_UINT16));
-
-    return !m_ProductString.empty();
 }

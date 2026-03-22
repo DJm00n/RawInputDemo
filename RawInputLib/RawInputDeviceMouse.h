@@ -4,6 +4,7 @@
 
 class RawInputDeviceMouse : public RawInputDevice
 {
+    friend class RawInputDeviceManager;
     friend class RawInputDeviceFactory<RawInputDeviceMouse>;
 
 public:
