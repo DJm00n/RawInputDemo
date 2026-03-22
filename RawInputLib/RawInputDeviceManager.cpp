@@ -119,21 +119,17 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
             {
             case WM_INPUT:
             {
-                for (;;)
+                UINT size = static_cast<UINT>(self->m_InputBuffer.size());
+                while (::GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam),
+                    RID_INPUT, self->m_InputBuffer.data(), &size, sizeof(RAWINPUTHEADER)) == UINT_MAX)
                 {
-                    UINT size = static_cast<UINT>(self->m_InputBuffer.size());
-                    UINT result = ::GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam),
-                        RID_INPUT, self->m_InputBuffer.data(), &size, sizeof(RAWINPUTHEADER));
-
-                    if (result != (UINT)-1)
-                    {
-                        self->OnInput(reinterpret_cast<RAWINPUT*>(self->m_InputBuffer.data()));
-                        break;
-                    }
+                    if (::GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+                        return 0;
 
                     // Buffer too small — size is updated by GetRawInputData to required size
                     self->m_InputBuffer.resize(size);
                 }
+                self->OnInput(reinterpret_cast<RAWINPUT*>(self->m_InputBuffer.data()));
                 return 0;
             }
 
@@ -270,90 +266,65 @@ void RawInputDeviceManager::RawInputManagerImpl::OnDeviceDisconnected(HANDLE dev
 
 void RawInputDeviceManager::RawInputManagerImpl::EnumerateDevices()
 {
-    UINT count = 0;
-    UINT result = ::GetRawInputDeviceList(nullptr, &count, sizeof(RAWINPUTDEVICELIST));
-    if (result == UINT_MAX)
+    std::vector<RAWINPUTDEVICELIST> deviceList(32);
+    UINT count = static_cast<UINT>(deviceList.size());
+    UINT result;
+
+    while ((result = ::GetRawInputDeviceList(deviceList.data(), &count, sizeof(RAWINPUTDEVICELIST))) == UINT_MAX)
     {
-        DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
-        return;
+        if (::GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        {
+            DBGPRINT("GetRawInputDeviceList() failed. GetLastError=%d", ::GetLastError());
+            return;
+        }
+
+        // Buffer too small — count is updated by GetRawInputDeviceList to required count
+        deviceList.resize(count);
     }
-    DCHECK_EQ(0u, result);
 
-    std::vector<RAWINPUTDEVICELIST> device_list;
-    do
-    {
-        device_list.resize(count);
-        result = ::GetRawInputDeviceList(device_list.data(), &count, sizeof(RAWINPUTDEVICELIST));
-    } while (result == UINT_MAX && GetLastError() == ERROR_INSUFFICIENT_BUFFER);
+    deviceList.resize(result);
 
-    device_list.resize(result);
-
-    // Build a set of currently present handles for O(1) lookup.
     std::unordered_set<HANDLE> current;
-    current.reserve(device_list.size());
-    for (const auto& d : device_list)
+    current.reserve(deviceList.size());
+    for (const auto& d : deviceList)
         current.insert(d.hDevice);
 
-    // Remove devices that are no longer present.
-    std::vector<HANDLE> toRemove;
-    for (auto it = m_Devices.begin(); it != m_Devices.end(); ++it)
+    // Remove devices no longer present.
+    for (auto it = m_Devices.begin(); it != m_Devices.end(); )
+    {
         if (!current.count(it->first))
-            toRemove.push_back(it->first);
-
-    for (HANDLE h : toRemove)
-    {
-        auto it = m_Devices.find(h);
-        auto handle = std::move(it->first);
-        m_Devices.erase(it);
-        OnDeviceDisconnected(handle);
+        {
+            OnDeviceDisconnected(it->first);
+            it = m_Devices.erase(it);
+        }
+        else
+            ++it;
     }
 
-    // Add devices that are not yet tracked.
-    for (const auto& d : device_list)
-    {
-        if (m_Devices.find(d.hDevice) == m_Devices.end())
+    // Add newly appeared devices.
+    for (const auto& d : deviceList)
+        if (!m_Devices.count(d.hDevice))
             OnDeviceConnected(d.hDevice);
-    }
 }
 
 void RawInputDeviceManager::RawInputManagerImpl::OnInput(const RAWINPUT* input)
 {
     HANDLE hDevice = input->header.hDevice;
-    RawInputDevice* target = nullptr;
 
+    // Route to default device first — it always receives all input of its type.
+    switch (input->header.dwType)
+    {
+    case RIM_TYPEKEYBOARD: m_DefaultKeyboard->OnInput(input); break;
+    case RIM_TYPEMOUSE:    m_DefaultMouse->OnInput(input);    break;
+    }
+
+    // Also route to the specific physical device if known.
     if (hDevice != NULL)
     {
         auto it = m_Devices.find(hDevice);
         if (it != m_Devices.end())
-            target = it->second.get();
+            it->second->OnInput(input);
     }
-
-    switch (input->header.dwType)
-    {
-    case RIM_TYPEKEYBOARD:
-        if (target && target != m_DefaultKeyboard.get())
-            m_DefaultKeyboard->OnInput(input);
-        break;
-    case RIM_TYPEMOUSE:
-        if (target && target != m_DefaultMouse.get())
-            m_DefaultMouse->OnInput(input);
-        break;
-    }
-
-	// Fall back to default devices if the target device is not found.
-    // This can happen when the handle is not provided.
-    // See https://stackoverflow.com/q/57552844
-    if (target == nullptr)
-    {
-        switch (input->header.dwType)
-        {
-        case RIM_TYPEKEYBOARD: target = m_DefaultKeyboard.get(); break;
-        case RIM_TYPEMOUSE:    target = m_DefaultMouse.get();    break;
-        }
-    }
-
-    if (target)
-        target->OnInput(input);
 }
 
 std::unique_ptr<RawInputDevice> RawInputDeviceManager::RawInputManagerImpl::CreateRawInputDevice(DWORD deviceType, HANDLE handle) const
