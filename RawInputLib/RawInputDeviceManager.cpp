@@ -142,8 +142,7 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
                 return 0;
 
             case WM_INPUTLANGCHANGE:
-                for (auto& [handle, device] : self->m_Devices)
-                    device->OnInputLanguageChanged(reinterpret_cast<HKL>(lParam));
+				self->m_DefaultKeyboard->OnInputLanguageChanged(reinterpret_cast<HKL>(lParam));
                 return 0;
             }
 

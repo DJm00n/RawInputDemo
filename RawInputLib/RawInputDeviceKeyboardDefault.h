@@ -26,7 +26,7 @@ protected:
     bool Initialize() override;
 
     void OnInput(const RAWINPUT* input) override;
-    void OnInputLanguageChanged(HKL hkl) override;
+    void OnInputLanguageChanged(HKL hkl);
 
 private:
     std::array<uint8_t, 256> m_KeyState;
