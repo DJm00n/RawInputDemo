@@ -43,7 +43,7 @@ protected:
     explicit RawInputDeviceHid(HANDLE handle);
 
     void OnInput(const RAWINPUT* input) override;
-    bool QueryDeviceInfo() override;
+    bool Initialize() override;
 
     struct AxisState
     {

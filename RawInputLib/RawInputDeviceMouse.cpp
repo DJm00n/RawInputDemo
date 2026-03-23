@@ -10,16 +10,6 @@
 RawInputDeviceMouse::RawInputDeviceMouse(HANDLE handle)
     : RawInputDevice(handle)
 {
-    if (handle == NULL)
-    {
-        m_InterfacePath = "Default Mouse";
-        m_Identity.product = "Default Mouse";
-        m_IsValid = true; // Virtual mouse device without a real handle.
-        return;
-    }
-
-    m_IsValid = QueryDeviceInfo();
-
     //DBGPRINT("New Mouse device: '%s', Interface: `%s`", GetProductString().c_str(), GetInterfacePath().c_str());
 }
 
@@ -105,9 +95,16 @@ void RawInputDeviceMouse::OnInput(const RAWINPUT* input)
     }
 }
 
-bool RawInputDeviceMouse::QueryDeviceInfo()
+bool RawInputDeviceMouse::Initialize()
 {
-    if (!RawInputDevice::QueryDeviceInfo())
+    if (m_Handle == NULL)
+    {
+        m_InterfacePath = "Default Mouse";
+        m_Identity.product = "Default Mouse";
+        return true;
+    }
+
+    if (!RawInputDevice::Initialize())
         return false;
 
     if (!m_MouseInfo.QueryInfo(m_Handle))

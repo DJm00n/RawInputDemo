@@ -194,6 +194,7 @@
     <ClInclude Include="RawInputDeviceFactory.h" />
     <ClInclude Include="RawInputDeviceHid.h" />
     <ClInclude Include="RawInputDeviceKeyboard.h" />
+    <ClInclude Include="RawInputDeviceKeyboardDefault.h" />
     <ClInclude Include="RawInputDeviceManager.h" />
     <ClInclude Include="RawInputDeviceMouse.h" />
     <ClInclude Include="CfgMgr32Wrapper.h" />
@@ -213,6 +214,7 @@
     <ClCompile Include="RawInputDeviceFactory.cpp" />
     <ClCompile Include="RawInputDeviceHid.cpp" />
     <ClCompile Include="RawInputDeviceKeyboard.cpp" />
+    <ClCompile Include="RawInputDeviceKeyboardDefault.cpp" />
     <ClCompile Include="RawInputDeviceManager.cpp" />
     <ClCompile Include="RawInputDeviceMouse.cpp" />
     <ClCompile Include="UsbDevice.cpp" />

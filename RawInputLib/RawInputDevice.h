@@ -16,8 +16,6 @@ public:
     RawInputDevice(RawInputDevice&) = delete;
     void operator=(RawInputDevice) = delete;
 
-    bool IsValid() { return m_IsValid; }
-
     virtual uint32_t GetType() const = 0;
     virtual void OnInputLanguageChanged(HKL /*hkl*/) {}
 
@@ -51,7 +49,7 @@ protected:
 
     virtual void OnInput(const RAWINPUT* input) = 0;
 
-    virtual bool QueryDeviceInfo();
+    virtual bool Initialize();
 
     bool QueryRawInputDeviceInfo();
     
@@ -112,7 +110,7 @@ protected:
     {
         std::string interfacePath;
         std::string manufacturer;
-        std::string product;
+        std::string modelNumber;
         std::string address;
         uint16_t    vendorId = 0;
         uint16_t    productId = 0;
@@ -126,6 +124,4 @@ protected:
 	std::optional<HidDeviceInfo>   m_HidInfo;
     std::optional<XboxInfo>        m_XboxInfo;
     std::optional<BluetoothLEInfo> m_BleInfo;
-
-    bool m_IsValid = false;
 };

@@ -9,7 +9,10 @@ class RawInputDeviceFactory
 
     std::unique_ptr<RawInputDevice> Create(HANDLE handle) const
     {
-        return std::unique_ptr<T>(new T(handle));
+        auto device = new T(handle);
+		device->Initialize();
+
+        return std::unique_ptr<T>(device);
     }
 };
 

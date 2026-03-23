@@ -100,7 +100,10 @@ std::unique_ptr<RawInputDevice> RawInputDeviceHid::Create(HANDLE handle)
             return std::unique_ptr<RawInputDevice>(new RawInputDeviceGamepad(handle));
     }*/
 
-    return std::unique_ptr<RawInputDevice>(new RawInputDeviceHid(handle));
+    auto device = new RawInputDeviceHid(handle);
+    device->Initialize();
+
+    return std::unique_ptr<RawInputDevice>(device);
 }
 
 bool RawInputDeviceHid::PreparsedData::Load(HANDLE handle)
@@ -125,8 +128,6 @@ bool RawInputDeviceHid::PreparsedData::Load(HANDLE handle)
 RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
     : RawInputDevice(handle)
 {
-    m_IsValid = QueryDeviceInfo();
-
     //DBGPRINT("New HID device Interface: %s", GetInterfacePath().c_str());
 }
 
@@ -239,9 +240,9 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
 // QueryDeviceInfo
 // ---------------------------------------------------------------------------
 
-bool RawInputDeviceHid::QueryDeviceInfo()
+bool RawInputDeviceHid::Initialize()
 {
-    if (!RawInputDevice::QueryDeviceInfo())
+    if (!RawInputDevice::Initialize())
         return false;
 
     if (!QueryDeviceCapabilities())

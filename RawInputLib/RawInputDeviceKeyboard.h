@@ -22,12 +22,7 @@ protected:
 
     void OnInput(const RAWINPUT* input) override;
 
-    void OnInputPrivate(const RAWKEYBOARD& keyboard);
-    void OnInputCharacter(uint32_t character);
-
-    void OnInputLanguageChanged(HKL hkl) override;
-
-    bool QueryDeviceInfo() override;
+    bool Initialize() override;
 
     struct KeyboardInfo
     {
@@ -52,8 +47,4 @@ protected:
         uint8_t IETFLanguageTagIndex = 0;
         uint8_t ImplementedInputAssistControls = 0;
     } m_ExtendedKeyboardInfo;
-
-    std::array<uint8_t, 256> m_KeyState;
-	HKL m_CurrentHKL = nullptr;
-    wchar_t m_PendingSurrogate = 0;
 };

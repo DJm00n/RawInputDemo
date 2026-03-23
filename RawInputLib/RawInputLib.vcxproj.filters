@@ -54,6 +54,9 @@
     <ClInclude Include="RawInputDeviceFactory.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RawInputDeviceKeyboardDefault.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -87,6 +90,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RawInputDeviceFactory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RawInputDeviceKeyboardDefault.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

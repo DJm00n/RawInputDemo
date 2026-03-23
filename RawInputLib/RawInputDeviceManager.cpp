@@ -7,6 +7,7 @@
 #include "RawInputDeviceFactory.h"
 #include "RawInputDeviceMouse.h"
 #include "RawInputDeviceKeyboard.h"
+#include "RawInputDeviceKeyboardDefault.h"
 #include "RawInputDeviceHid.h"
 
 #include <array>
@@ -64,8 +65,8 @@ struct RawInputDeviceManager::RawInputManagerImpl
 
     std::unordered_map<HANDLE, std::unique_ptr<RawInputDevice>> m_Devices;
 
-    std::unique_ptr<RawInputDeviceKeyboard> m_DefaultKeyboard;
-    std::unique_ptr<RawInputDeviceMouse>    m_DefaultMouse;
+    std::unique_ptr<RawInputDeviceKeyboardDefault> m_DefaultKeyboard;
+    std::unique_ptr<RawInputDeviceMouse>           m_DefaultMouse;
 };
 
 // ---------------------------------------------------------------------------
@@ -158,8 +159,11 @@ void RawInputDeviceManager::RawInputManagerImpl::ThreadRun(std::promise<void> re
 
     CHECK(Register());
 
-    m_DefaultKeyboard.reset(static_cast<RawInputDeviceKeyboard*>(CreateRawInputDevice(RIM_TYPEKEYBOARD, NULL).release()));
-    m_DefaultMouse.reset(static_cast<RawInputDeviceMouse*>(CreateRawInputDevice(RIM_TYPEMOUSE, NULL).release()));
+    m_DefaultKeyboard.reset(new RawInputDeviceKeyboardDefault());
+    m_DefaultMouse.reset(new RawInputDeviceMouse(nullptr));
+
+    m_DefaultKeyboard->Initialize();
+    m_DefaultMouse->Initialize();
 
     EnumerateDevices();
 
