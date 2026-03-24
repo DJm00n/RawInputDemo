@@ -57,6 +57,9 @@
     <ClInclude Include="RawInputDeviceKeyboardDefault.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="utils_hiddescriptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -93,6 +96,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RawInputDeviceKeyboardDefault.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="utils_hiddescriptor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

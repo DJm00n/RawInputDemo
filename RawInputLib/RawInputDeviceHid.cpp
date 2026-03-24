@@ -5,6 +5,7 @@
 //#include "RawInputDeviceGamepad.h"
 //#include "RawInputDeviceWheel.h"
 #include "CfgMgr32Wrapper.h"
+#include "utils_hiddescriptor.h"
 
 #include <hidusage.h>
 #include <winioctl.h>
@@ -30,16 +31,13 @@ namespace
             -1.f, 1.f);
     }
 
-    // DI: hat iff single usage == HatSwitch or Game POV.
-    constexpr uint16_t kGamePOVUsage = 0x20;
-
     bool IsPOV(const HIDP_VALUE_CAPS& vc)
     {
         if (vc.IsRange)
             return false;
         const auto u = static_cast<uint16_t>(vc.NotRange.Usage);
         return (vc.UsagePage == HID_USAGE_PAGE_GENERIC && u == HID_USAGE_GENERIC_HATSWITCH)
-            || (vc.UsagePage == HID_USAGE_PAGE_GAME && u == kGamePOVUsage);
+            || (vc.UsagePage == HID_USAGE_PAGE_GAME && u == HID_USAGE_GAME_POV);
     }
 
     struct ParsedRange { int32_t lMin, lMax, mask; bool isSigned; };
@@ -258,6 +256,9 @@ bool RawInputDeviceHid::Initialize()
 bool RawInputDeviceHid::QueryDeviceCapabilities()
 {
 	if (!m_PreparsedData.Load(m_Handle))
+		return false;
+
+	if (!ReconstructDescriptor(m_PreparsedData.data, m_UsbInfo->m_HidReportDescriptor))
 		return false;
 
     HIDP_CAPS caps;

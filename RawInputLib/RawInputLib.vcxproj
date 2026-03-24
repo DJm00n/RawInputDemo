@@ -200,6 +200,7 @@
     <ClInclude Include="CfgMgr32Wrapper.h" />
     <ClInclude Include="UsbDevice.h" />
     <ClInclude Include="utils.h" />
+    <ClInclude Include="utils_hiddescriptor.h" />
     <ClInclude Include="utils_winrt.h" />
   </ItemGroup>
   <ItemGroup>
@@ -219,6 +220,7 @@
     <ClCompile Include="RawInputDeviceMouse.cpp" />
     <ClCompile Include="UsbDevice.cpp" />
     <ClCompile Include="utils.cpp" />
+    <ClCompile Include="utils_hiddescriptor.cpp" />
     <ClCompile Include="utils_winrt.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
