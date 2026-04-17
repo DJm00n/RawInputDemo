@@ -62,6 +62,13 @@ protected:
         int32_t  physicalMax = 0;
         uint32_t units = 0;
         int16_t  unitsExp = 0;
+        uint16_t bitSize = 0;
+
+        // If > 1, this axis is the first element of a value array
+        // of reportCount elements occupying consecutive slots in m_Axes.
+        // HidP_GetData does not report these — parsed via HidP_GetUsageValueArray.
+        // For subsequent elements (slots 1..N-1) this field is 0.
+        uint16_t reportCount = 1;
     };
 
     struct HatState
@@ -93,7 +100,7 @@ private:
     struct InputReport
     {
         std::vector<HIDP_DATA> parsedData;
-        uint32_t               maxCount = 0;
+		std::vector<uint8_t>   valueArrayBuffer;
     };
 
     struct PreparsedData

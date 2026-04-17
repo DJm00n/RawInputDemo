@@ -58,6 +58,21 @@ namespace
 
         return { signMask, ~signMask, signMask, true }; // bad firmware
     }
+
+    uint32_t ExtractBits(const uint8_t* buf, size_t bufSize,
+        uint32_t bitOffset, uint32_t bitCount)
+    {
+        const uint32_t byteOffset = bitOffset / 8;
+        const uint32_t bitShift = bitOffset % 8;
+
+        uint32_t raw = 0;
+        std::memcpy(&raw, buf + byteOffset,
+            std::min<size_t>(4, bufSize - byteOffset));
+
+        raw >>= bitShift;
+        raw &= (bitCount < 32) ? ((1u << bitCount) - 1u) : ~0u;
+        return raw;
+    }
 } // namespace
 
 // static
@@ -144,7 +159,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
     }
 
     const RAWHID& raw = input->data.hid;
-    if (m_InputReport.maxCount == 0)
+    if (m_InputReport.parsedData.empty())
         return;
 
     for (uint32_t ri = 0; ri < raw.dwCount; ++ri)
@@ -152,7 +167,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
         const uint8_t* src = raw.bRawData + static_cast<size_t>(ri) * raw.dwSizeHid;
         const uint32_t len = raw.dwSizeHid;
 
-        uint32_t count = m_InputReport.maxCount;
+        size_t count = m_InputReport.parsedData.size();
         const NTSTATUS st = HidP_GetData(
             HidP_Input,
             m_InputReport.parsedData.data(),
@@ -231,6 +246,47 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
                 break;
             }
         }
+
+        for (size_t i = 0; i < m_AxesLength; )
+        {
+            const AxisState& ax = m_Axes[i];
+            // reportCount == 1: regular axis, already handled by HidP_GetData above.
+            // reportCount == 0: non-first element of a value array, handled with its first element.
+            // reportCount  > 1: first element of a value array — handle here.
+            if (ax.reportCount <= 1) { ++i; continue; }
+
+            // Value array — read with HidP_GetUsageValueArray
+            if (HidP_GetUsageValueArray(HidP_Input,
+                ax.usagePage, 0, ax.usage,
+                reinterpret_cast<PCHAR>(m_InputReport.valueArrayBuffer.data()),
+                static_cast<USHORT>(m_InputReport.valueArrayBuffer.size()),
+                m_PreparsedData.data,
+                const_cast<PCHAR>(reinterpret_cast<const char*>(src)),
+                static_cast<ULONG>(len)) == HIDP_STATUS_SUCCESS)
+            {
+                for (uint16_t j = 0; j < ax.reportCount; ++j)
+                {
+                    if (i + j >= kAxesLengthCap) break;
+                    const uint32_t rawValue = ExtractBits(
+                        m_InputReport.valueArrayBuffer.data(),
+                        m_InputReport.valueArrayBuffer.size(),
+                        j * ax.bitSize, ax.bitSize);
+
+                    int32_t lv = rawValue;
+
+                    // Sign-extend if top bit of BitSize-wide field is set.
+                    // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
+                    if (ax.signMask && (lv & ax.signMask))
+                        lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
+
+                    m_Axes[i + j].value = ax.isAbsolute
+                        ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
+                        : ax.value + static_cast<float>(lv);
+                }
+            }
+
+            i += ax.reportCount;
+        }
     }
 }
 
@@ -276,9 +332,8 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     if (caps.NumberInputValueCaps > 0)
         QueryAxisCapabilities(caps.NumberInputValueCaps);
 
-    m_InputReport.maxCount = static_cast<uint32_t>(
-        HidP_MaxDataListLength(HidP_Input, m_PreparsedData.data));
-    m_InputReport.parsedData.resize(m_InputReport.maxCount);
+    size_t maxCount = static_cast<size_t>(HidP_MaxDataListLength(HidP_Input, m_PreparsedData.data));
+    m_InputReport.parsedData.resize(maxCount);
 
     return true;
 }
@@ -377,6 +432,34 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
     {
         const HIDP_VALUE_CAPS& vc = rawCaps[i];
 
+		// Value array: single Usage, several values with consecutive Data Indices.
+        if (!vc.IsRange && vc.ReportCount > 1)
+        {
+			// HidP_GetData doesn't support Value Arrays, so we have to fetch each element separately by Usage.
+            for (uint16_t j = 0; j < vc.ReportCount && m_AxesLength < kAxesLengthCap; ++j)
+            {
+                axisSlotUsed.set(m_AxesLength);
+
+                auto [lMin, lMax, mask, isSigned] = ParseLogicalRange(vc);
+                AxisState& ax = m_Axes[m_AxesLength++];
+                ax.logicalMin = lMin;
+                ax.logicalMax = lMax;
+                ax.signMask = mask;
+                ax.isSigned = isSigned;
+                ax.isAbsolute = (vc.IsAbsolute != FALSE);
+                ax.usagePage = vc.UsagePage;
+                ax.usage = static_cast<uint16_t>(vc.NotRange.Usage);
+                ax.physicalMin = vc.PhysicalMin;
+                ax.physicalMax = vc.PhysicalMax;
+                ax.units = vc.Units;
+                ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
+                ax.bitSize = vc.BitSize;
+                ax.reportCount = j == 0 ? vc.ReportCount : 0;
+            }
+
+			continue;
+        }
+
         // ---- hat ----
         if (IsPOV(vc) && nextFreeHat < kHatsLengthCap)
         {
@@ -437,15 +520,13 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
         ax.signMask = mask;
         ax.isSigned = isSigned;
         ax.isAbsolute = (vc.IsAbsolute != FALSE);
-        ax.value = 0.f;
-
-        // Metadata for subclasses
         ax.usagePage = vc.UsagePage;
         ax.usage = usageMin;
         ax.physicalMin = vc.PhysicalMin;
         ax.physicalMax = vc.PhysicalMax;
         ax.units = vc.Units;
         ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
+        ax.bitSize = vc.BitSize;
 
         m_AxesLength = std::max(m_AxesLength, slot + 1);
 
@@ -460,4 +541,13 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
                                          static_cast<uint8_t>(slot),
                                          vc.ReportID };
     }
+
+    size_t maxArrayBytes = 0;
+    for (size_t i = 0; i < m_AxesLength; ++i)
+    {
+        if (m_Axes[i].reportCount > 1)
+            maxArrayBytes = std::max(maxArrayBytes, static_cast<size_t>((m_Axes[i].bitSize * m_Axes[i].reportCount + 7) / 8));
+    }
+
+	m_InputReport.valueArrayBuffer.resize(maxArrayBytes); // for HidP_GetUsageValueArray
 }
