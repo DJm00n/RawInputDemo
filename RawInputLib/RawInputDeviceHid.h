@@ -53,16 +53,12 @@ protected:
         // ---- metadata ----
         uint16_t usagePage = 0;
         uint16_t usage = 0;
-        uint8_t  reportId = 0;
 
         // If > 1, this button is the first element of a button array
         // of reportCount elements occupying consecutive slots in m_Buttons.
         // HidP_GetButtonArray is needed to read individual elements (Windows 11+).
         // For subsequent elements (slots 1..N-1) this field is 0.
         uint16_t reportCount = 1;
-
-        // Zero-based position within a button array (0 for regular buttons).
-        uint16_t arrayIndex = 0;
     };
 
     struct AxisState
@@ -122,7 +118,6 @@ private:
     // Per-Report-ID button reset mask.
     // When a device has multiple Report IDs, only buttons belonging to the
     // received report should be cleared.
-    // If the map is empty, all buttons share one Report ID — fast path.
     std::unordered_map<uint8_t, std::vector<bool>> m_ButtonReportMasks;
 
     struct InputReport

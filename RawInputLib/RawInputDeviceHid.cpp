@@ -315,7 +315,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
                 if (btn.reportCount <= 1) { ++i; continue; }
 
                 // Clear all elements of this array before reading fresh state.
-                for (uint16_t j = 0; j < btn.reportCount; ++j)
+                for (uint16_t j = 0; j < btn.reportCount && i + j < m_ButtonsLength; ++j)
                     m_Buttons[i + j].value = false;
 
                 USHORT bufLen = static_cast<USHORT>(btn.reportCount);
@@ -333,9 +333,12 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
                     for (USHORT j = 0; j < bufLen; ++j)
                     {
                         const HIDP_BUTTON_ARRAY_DATA& bad = m_InputReport.buttonArrayBuffer[j];
-                        const size_t slot = i + bad.ArrayIndex;
-                        if (bad.On && slot < kButtonsLengthCap)
-                            m_Buttons[slot].value = true;
+                        if (bad.ArrayIndex < btn.reportCount)
+                        {
+                            size_t slot = i + bad.ArrayIndex;
+                            if (slot < m_ButtonsLength)
+                                m_Buttons[slot].value = true;
+                        }
                     }
                 }
 
@@ -413,9 +416,7 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
                 ButtonState& btn = m_Buttons[m_ButtonsLength++];
                 btn.usagePage = bc.UsagePage;
                 btn.usage = bc.NotRange.Usage;
-                btn.reportId = bc.ReportID;
                 btn.reportCount = (j == 0) ? bc.ReportCount : 0;
-                btn.arrayIndex = j;
             }
 
             if (di < m_DataIndexTable.size())
@@ -459,7 +460,6 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
             ButtonState& btn = m_Buttons[slot];
             btn.usagePage = bc.UsagePage;
             btn.usage = static_cast<uint16_t>(uMin + (di - diMin));
-            btn.reportId = bc.ReportID;
 
             m_DataIndexTable[di] = { Kind::Button,
                                      static_cast<uint8_t>(slot),
