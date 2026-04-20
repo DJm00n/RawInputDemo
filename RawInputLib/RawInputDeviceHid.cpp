@@ -247,6 +247,9 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
             }
         }
 
+        if (m_InputReport.valueArrayBuffer.empty())
+            return;
+
         for (size_t i = 0; i < m_AxesLength; )
         {
             const AxisState& ax = m_Axes[i];
@@ -256,34 +259,37 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
             if (ax.reportCount <= 1) { ++i; continue; }
 
             // Value array — read with HidP_GetUsageValueArray
-            if (HidP_GetUsageValueArray(HidP_Input,
+            const NTSTATUS st = HidP_GetUsageValueArray(HidP_Input,
                 ax.usagePage, 0, ax.usage,
                 reinterpret_cast<PCHAR>(m_InputReport.valueArrayBuffer.data()),
                 static_cast<USHORT>(m_InputReport.valueArrayBuffer.size()),
                 m_PreparsedData.data,
                 const_cast<PCHAR>(reinterpret_cast<const char*>(src)),
-                static_cast<ULONG>(len)) == HIDP_STATUS_SUCCESS)
+                static_cast<ULONG>(len));
+            
+            if (st != HIDP_STATUS_SUCCESS)
+                continue;
+
+            for (uint16_t j = 0; j < ax.reportCount; ++j)
             {
-                for (uint16_t j = 0; j < ax.reportCount; ++j)
-                {
-                    if (i + j >= kAxesLengthCap) break;
-                    const uint32_t rawValue = ExtractBits(
-                        m_InputReport.valueArrayBuffer.data(),
-                        m_InputReport.valueArrayBuffer.size(),
-                        j * ax.bitSize, ax.bitSize);
+                if (i + j >= kAxesLengthCap) break;
+                const uint32_t rawValue = ExtractBits(
+                    m_InputReport.valueArrayBuffer.data(),
+                    m_InputReport.valueArrayBuffer.size(),
+                    j * ax.bitSize, ax.bitSize);
 
-                    int32_t lv = rawValue;
+                int32_t lv = rawValue;
 
-                    // Sign-extend if top bit of BitSize-wide field is set.
-                    // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
-                    if (ax.signMask && (lv & ax.signMask))
-                        lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
+                // Sign-extend if top bit of BitSize-wide field is set.
+                // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
+                if (ax.signMask && (lv & ax.signMask))
+                    lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
 
-                    m_Axes[i + j].value = ax.isAbsolute
-                        ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
-                        : ax.value + static_cast<float>(lv);
-                }
+                m_Axes[i + j].value = ax.isAbsolute
+                    ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
+                    : ax.value + static_cast<float>(lv);
             }
+            
 
             i += ax.reportCount;
         }
