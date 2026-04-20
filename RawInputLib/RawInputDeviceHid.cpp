@@ -13,7 +13,6 @@
 
 namespace
 {
-    // DI: lMask = ~((1 << (BitSize-1)) - 1)
     int32_t SignMask(uint16_t bitSize)
     {
         if (bitSize == 0 || bitSize >= 32)
@@ -78,9 +77,9 @@ namespace
 // static
 std::unique_ptr<RawInputDevice> RawInputDeviceHid::Create(HANDLE handle)
 {
-	PreparsedData preparsedData;
+    PreparsedData preparsedData;
     if (!preparsedData.Load(handle))
-		return nullptr;
+        return nullptr;
 
     HIDP_CAPS caps{};
     if (HidP_GetCaps(preparsedData.data, &caps) != HIDP_STATUS_SUCCESS)
@@ -105,17 +104,16 @@ std::unique_ptr<RawInputDevice> RawInputDeviceHid::Create(HANDLE handle)
         HidP_GetSpecificValueCaps(HidP_Input,
             HID_USAGE_PAGE_SIMULATION, 0,
             HID_USAGE_SIMULATION_STEERING,
-            nullptr, &n, ppd);
+            nullptr, &n, preparsedData.data);
 
-        if (n > 0)
-            return std::unique_ptr<RawInputDevice>(new RawInputDeviceWheel(handle));
-        else
-            return std::unique_ptr<RawInputDevice>(new RawInputDeviceGamepad(handle));
-    }*/
+        return std::unique_ptr<RawInputDevice>(
+            n > 0 ? new RawInputDeviceWheel(handle)
+                  : new RawInputDeviceGamepad(handle));
+    }
+    */
 
-    auto device = new RawInputDeviceHid(handle);
+    auto* device = new RawInputDeviceHid(handle);
     device->Initialize();
-
     return std::unique_ptr<RawInputDevice>(device);
 }
 
@@ -127,6 +125,7 @@ bool RawInputDeviceHid::PreparsedData::Load(HANDLE handle)
 
     buffer = std::make_unique<uint8_t[]>(size);
     data = reinterpret_cast<PHIDP_PREPARSED_DATA>(buffer.get());
+
     if (::GetRawInputDeviceInfoW(handle, RIDI_PREPARSEDDATA, buffer.get(), &size) != size)
     {
         buffer.reset();
@@ -145,6 +144,21 @@ RawInputDeviceHid::RawInputDeviceHid(HANDLE handle)
 }
 
 RawInputDeviceHid::~RawInputDeviceHid() = default;
+
+// ---------------------------------------------------------------------------
+// Initialize
+// ---------------------------------------------------------------------------
+
+bool RawInputDeviceHid::Initialize()
+{
+    if (!RawInputDevice::Initialize())
+        return false;
+
+    if (!QueryDeviceCapabilities())
+        return false;
+
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // OnInput
@@ -179,33 +193,28 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
         if (st != HIDP_STATUS_SUCCESS && st != HIDP_STATUS_BUFFER_TOO_SMALL)
             continue;
 
-        // DI rule: buttons / hats absent from the report are released/centred;
+        // Buttons / hats absent from the report are released / centred;
         // axes keep their previous value.
         //
-        // When multiple Report IDs exist, only clear buttons that belong to
-        // this specific report — other reports' buttons stay as-is.
-        // DI: rgpbButtonMasks[] (dihidini.c).
-        const uint8_t reportId = src[0]; // Report ID is always first byte
-        if (m_ButtonReportMasks.empty())
+        // Only clear buttons that belong to this specific report.
+        // Other reports' buttons stay as-is.
+        const uint8_t reportId = src[0]; // Report ID is always the first byte
+        if (auto it = m_ButtonReportMasks.find(reportId); it != m_ButtonReportMasks.end())
         {
-            // Fast path: single Report ID, clear all buttons.
-            std::fill(std::begin(m_Buttons), std::begin(m_Buttons) + m_ButtonsLength, false);
-        }
-        else if (auto it = m_ButtonReportMasks.find(reportId); it != m_ButtonReportMasks.end())
-        {
-            const std::vector<bool>& mask = it->second;
             for (size_t i = 0; i < m_ButtonsLength; ++i)
-                if (mask[i])
-                    m_Buttons[i] = false;
+                if (it->second[i])
+                    m_Buttons[i].value = false;
         }
 
         for (size_t i = 0; i < m_HatsLength; ++i)
             m_Hats[i].value = -1;
 
+        // Dispatch controls that have a DataIndex (regular axes, hats, buttons).
+        // Kind::ValueArray and Kind::ButtonArray have a DataIndex too but carry
+        // no useful per-element data in HIDP_DATA — they are handled below.
         for (uint32_t i = 0; i < count; ++i)
         {
             const HIDP_DATA& d = m_InputReport.parsedData[i];
-
             if (d.DataIndex >= m_DataIndexTable.size())
                 continue;
 
@@ -217,12 +226,8 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
             {
                 AxisState& ax = m_Axes[e.index];
                 int32_t lv = static_cast<int32_t>(d.RawValue);
-
-                // Sign-extend if top bit of BitSize-wide field is set.
-                // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
                 if (ax.signMask && (lv & ax.signMask))
                     lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
-
                 ax.value = ax.isAbsolute
                     ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
                     : ax.value + static_cast<float>(lv);
@@ -232,83 +237,112 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
             {
                 HatState& hat = m_Hats[e.index];
                 const int32_t lv = static_cast<int32_t>(d.RawValue);
-
                 hat.value = (lv < hat.logicalMin || lv > hat.logicalMax)
                     ? -1
                     : (lv - hat.logicalMin) * hat.povGranularity;
                 break;
             }
             case Kind::Button:
-                m_Buttons[e.index] = (d.On != 0);
+                m_Buttons[e.index].value = (d.On != 0);
                 break;
 
+                // Arrays are handled in the dedicated passes below.
+            case Kind::ValueArray:
+            case Kind::ButtonArray:
             case Kind::None:
                 break;
             }
         }
 
-        if (m_InputReport.valueArrayBuffer.empty())
-            return;
-
-        for (size_t i = 0; i < m_AxesLength; )
+        // ---- Value arrays (HidP_GetUsageValueArray) -------------------------
+        // Value arrays have no DataIndex per element — HidP_GetData skips them.
+        // Iterate m_Axes looking for first elements (reportCount > 1).
+        if (!m_InputReport.valueArrayBuffer.empty())
         {
-            const AxisState& ax = m_Axes[i];
-            // reportCount == 1: regular axis, already handled by HidP_GetData above.
-            // reportCount == 0: non-first element of a value array, handled with its first element.
-            // reportCount  > 1: first element of a value array — handle here.
-            if (ax.reportCount <= 1) { ++i; continue; }
-
-            // Value array — read with HidP_GetUsageValueArray
-            const NTSTATUS st = HidP_GetUsageValueArray(HidP_Input,
-                ax.usagePage, 0, ax.usage,
-                reinterpret_cast<PCHAR>(m_InputReport.valueArrayBuffer.data()),
-                static_cast<USHORT>(m_InputReport.valueArrayBuffer.size()),
-                m_PreparsedData.data,
-                const_cast<PCHAR>(reinterpret_cast<const char*>(src)),
-                static_cast<ULONG>(len));
-            
-            if (st != HIDP_STATUS_SUCCESS)
-                continue;
-
-            for (uint16_t j = 0; j < ax.reportCount; ++j)
+            for (size_t i = 0; i < m_AxesLength; )
             {
-                if (i + j >= kAxesLengthCap) break;
-                const uint32_t rawValue = ExtractBits(
-                    m_InputReport.valueArrayBuffer.data(),
-                    m_InputReport.valueArrayBuffer.size(),
-                    j * ax.bitSize, ax.bitSize);
+                const AxisState& ax = m_Axes[i];
+                // reportCount == 1: regular axis, handled above.
+                // reportCount == 0: non-first element, handled with its first element.
+                // reportCount  > 1: first element of a value array — handle here.
+                if (ax.reportCount <= 1) { ++i; continue; }
 
-                int32_t lv = rawValue;
+                const NTSTATUS vas = HidP_GetUsageValueArray(
+                    HidP_Input,
+                    ax.usagePage, 0, ax.usage,
+                    reinterpret_cast<PCHAR>(m_InputReport.valueArrayBuffer.data()),
+                    static_cast<USHORT>(m_InputReport.valueArrayBuffer.size()),
+                    m_PreparsedData.data,
+                    const_cast<PCHAR>(reinterpret_cast<const char*>(src)),
+                    static_cast<ULONG>(len));
 
-                // Sign-extend if top bit of BitSize-wide field is set.
-                // DI: if (lValue & lMask) { isSigned ? lv |= mask : lv &= ~mask }
-                if (ax.signMask && (lv & ax.signMask))
-                    lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
+                if (vas == HIDP_STATUS_SUCCESS)
+                {
+                    for (uint16_t j = 0; j < ax.reportCount; ++j)
+                    {
+                        if (i + j >= kAxesLengthCap) break;
 
-                m_Axes[i + j].value = ax.isAbsolute
-                    ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
-                    : ax.value + static_cast<float>(lv);
+                        const uint32_t rawValue = ExtractBits(
+                            m_InputReport.valueArrayBuffer.data(),
+                            m_InputReport.valueArrayBuffer.size(),
+                            j * ax.bitSize, ax.bitSize);
+
+                        AxisState& elem = m_Axes[i + j];
+                        int32_t lv = static_cast<int32_t>(rawValue);
+                        if (elem.signMask && (lv & elem.signMask))
+                            lv = elem.isSigned ? (lv | elem.signMask) : (lv & ~elem.signMask);
+                        elem.value = elem.isAbsolute
+                            ? NormaliseAxis(lv, elem.logicalMin, elem.logicalMax)
+                            : elem.value + static_cast<float>(lv);
+                    }
+                }
+
+                i += ax.reportCount;
             }
-            
+        }
 
-            i += ax.reportCount;
+        // ---- Button arrays (HidP_GetButtonArray, Windows 11+) ---------------
+        // Button arrays have a single DataIndex for the whole array; individual
+        // element state is only available via HidP_GetButtonArray.
+        if (!m_InputReport.buttonArrayBuffer.empty())
+        {
+            for (size_t i = 0; i < m_ButtonsLength; )
+            {
+                const ButtonState& btn = m_Buttons[i];
+                // reportCount == 1: regular button, handled above.
+                // reportCount == 0: non-first element, handled with its first element.
+                // reportCount  > 1: first element of a button array — handle here.
+                if (btn.reportCount <= 1) { ++i; continue; }
+
+                // Clear all elements of this array before reading fresh state.
+                for (uint16_t j = 0; j < btn.reportCount; ++j)
+                    m_Buttons[i + j].value = false;
+
+                USHORT bufLen = static_cast<USHORT>(btn.reportCount);
+                const NTSTATUS bas = HidP_GetButtonArray(
+                    HidP_Input,
+                    btn.usagePage, 0, btn.usage,
+                    m_InputReport.buttonArrayBuffer.data(),
+                    &bufLen,
+                    m_PreparsedData.data,
+                    const_cast<PCHAR>(reinterpret_cast<const char*>(src)),
+                    static_cast<ULONG>(len));
+
+                if (bas == HIDP_STATUS_SUCCESS)
+                {
+                    for (USHORT j = 0; j < bufLen; ++j)
+                    {
+                        const HIDP_BUTTON_ARRAY_DATA& bad = m_InputReport.buttonArrayBuffer[j];
+                        const size_t slot = i + bad.ArrayIndex;
+                        if (bad.On && slot < kButtonsLengthCap)
+                            m_Buttons[slot].value = true;
+                    }
+                }
+
+                i += btn.reportCount;
+            }
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// QueryDeviceInfo
-// ---------------------------------------------------------------------------
-
-bool RawInputDeviceHid::Initialize()
-{
-    if (!RawInputDevice::Initialize())
-        return false;
-
-    if (!QueryDeviceCapabilities())
-        return false;
-
-    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,11 +351,11 @@ bool RawInputDeviceHid::Initialize()
 
 bool RawInputDeviceHid::QueryDeviceCapabilities()
 {
-	if (!m_PreparsedData.Load(m_Handle))
-		return false;
+    if (!m_PreparsedData.Load(m_Handle))
+        return false;
 
-	if (!ReconstructDescriptor(m_PreparsedData.data, m_UsbInfo->m_HidReportDescriptor))
-		return false;
+    if (!ReconstructDescriptor(m_PreparsedData.data, m_UsbInfo->m_HidReportDescriptor))
+        return false;
 
     HIDP_CAPS caps;
     if (HidP_GetCaps(m_PreparsedData.data, &caps) != HIDP_STATUS_SUCCESS)
@@ -338,7 +372,8 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     if (caps.NumberInputValueCaps > 0)
         QueryAxisCapabilities(caps.NumberInputValueCaps);
 
-    size_t maxCount = static_cast<size_t>(HidP_MaxDataListLength(HidP_Input, m_PreparsedData.data));
+    const size_t maxCount = static_cast<size_t>(
+        HidP_MaxDataListLength(HidP_Input, m_PreparsedData.data));
     m_InputReport.parsedData.resize(maxCount);
 
     return true;
@@ -354,10 +389,8 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
     DCHECK_EQ(HIDP_STATUS_SUCCESS,
         HidP_GetButtonCaps(HidP_Input, caps.get(), &count, m_PreparsedData.data));
 
-    // First pass: collect unique Report IDs to decide if we need per-ID masks.
-    // If all buttons share the same Report ID (common case), we skip the mask.
-    uint8_t firstReportId = 0;
-    bool    multipleReportIds = false;
+    // Register each button / button array in the dispatch table.
+    size_t maxButtonArrayCount = 0;
 
     for (uint16_t i = 0; i < count; ++i)
     {
@@ -365,23 +398,52 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
         if (bc.UsagePage != HID_USAGE_PAGE_BUTTON)
             continue;
 
-        if (firstReportId == 0)
-            firstReportId = bc.ReportID;
-        else if (bc.ReportID != firstReportId)
-            multipleReportIds = true;
-    }
+        // Button array: single Usage (IsRange == FALSE), ReportCount > 1.
+        // HidP assigns ONE DataIndex for the whole array.
+        // Individual element state requires HidP_GetButtonArray (Windows 11+).
+        if (!bc.IsRange && bc.ReportCount > 1)
+        {
+            const uint16_t di = bc.NotRange.DataIndex;
+            const size_t   firstSlot = m_ButtonsLength;
 
-    // Second pass: register each button in the dispatch table.
-    for (uint16_t i = 0; i < count; ++i)
-    {
-        const HIDP_BUTTON_CAPS& bc = caps[i];
-        if (bc.UsagePage != HID_USAGE_PAGE_BUTTON)
+            for (uint16_t j = 0;
+                j < bc.ReportCount && m_ButtonsLength < kButtonsLengthCap;
+                ++j)
+            {
+                ButtonState& btn = m_Buttons[m_ButtonsLength++];
+                btn.usagePage = bc.UsagePage;
+                btn.usage = bc.NotRange.Usage;
+                btn.reportId = bc.ReportID;
+                btn.reportCount = (j == 0) ? bc.ReportCount : 0;
+                btn.arrayIndex = j;
+            }
+
+            if (di < m_DataIndexTable.size())
+                m_DataIndexTable[di] = { Kind::ButtonArray,
+                                         static_cast<uint8_t>(firstSlot),
+                                         bc.ReportID };
+
+
+            auto& mask = m_ButtonReportMasks[bc.ReportID];
+            for (size_t j = 0;
+                j < bc.ReportCount && firstSlot + j < kButtonsLengthCap;
+                ++j)
+            {
+                if (mask.size() <= firstSlot + j)
+                    mask.resize(firstSlot + j + 1, false);
+                mask[firstSlot + j] = true;
+            }
+
+            maxButtonArrayCount = std::max(maxButtonArrayCount,
+                static_cast<size_t>(bc.ReportCount));
             continue;
+        }
 
+        // Regular buttons (IsRange or single button).
         const uint16_t uMin = bc.IsRange ? bc.Range.UsageMin : bc.NotRange.Usage;
         const uint16_t uMax = bc.IsRange ? bc.Range.UsageMax : bc.NotRange.Usage;
-        const uint16_t diMin = bc.Range.DataIndexMin;
-        const uint16_t diMax = bc.Range.DataIndexMax;
+        const uint16_t diMin = bc.IsRange ? bc.Range.DataIndexMin : bc.NotRange.DataIndex;
+        const uint16_t diMax = bc.IsRange ? bc.Range.DataIndexMax : bc.NotRange.DataIndex;
 
         if (uMin == 0 || uMax == 0)
             continue;
@@ -394,30 +456,34 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
             if (slot >= kButtonsLengthCap || di >= m_DataIndexTable.size())
                 continue;
 
+            ButtonState& btn = m_Buttons[slot];
+            btn.usagePage = bc.UsagePage;
+            btn.usage = static_cast<uint16_t>(uMin + (di - diMin));
+            btn.reportId = bc.ReportID;
+
             m_DataIndexTable[di] = { Kind::Button,
                                      static_cast<uint8_t>(slot),
                                      bc.ReportID };
             m_ButtonsLength = std::max(m_ButtonsLength, slot + 1);
 
-            // Build the per-Report-ID reset mask if needed.
-            // DI: rgpbButtonMasks[] — each mask is a bitset over the button array.
-            // On receive of report R, we AND m_Buttons[i] with ~mask[R][i],
-            // zeroing only the buttons that belong to R.
-            if (multipleReportIds)
-            {
-                auto& mask = m_ButtonReportMasks[bc.ReportID];
-                if (mask.size() <= slot)
-                    mask.resize(slot + 1, false);
-                mask[slot] = true;
-            }
+            auto& mask = m_ButtonReportMasks[bc.ReportID];
+            if (mask.size() <= slot)
+                mask.resize(slot + 1, false);
+            mask[slot] = true;
         }
     }
 
-    // Make sure all masks cover the full button range.
-    if (multipleReportIds)
+    // Ensure all masks cover the full button range.
+    for (auto& [id, mask] : m_ButtonReportMasks)
+        mask.resize(m_ButtonsLength, false);
+
+    // Allocate button array buffer only when HidP_GetButtonArray is available
+    // (requires HidP version >= 2, i.e. Windows 11+).
+    if (maxButtonArrayCount > 0)
     {
-        for (auto& [id, mask] : m_ButtonReportMasks)
-            mask.resize(m_ButtonsLength, false);
+        ULONG hidpVersion = 0;
+        if (HidP_GetVersion(&hidpVersion) == HIDP_STATUS_SUCCESS && hidpVersion >= 2)
+            m_InputReport.buttonArrayBuffer.resize(maxButtonArrayCount);
     }
 }
 
@@ -438,15 +504,20 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
     {
         const HIDP_VALUE_CAPS& vc = rawCaps[i];
 
-		// Value array: single Usage, several values with consecutive Data Indices.
+        // Value array: single Usage (IsRange == FALSE), ReportCount > 1.
+        // HidP_GetData does not report individual elements — use HidP_GetUsageValueArray.
         if (!vc.IsRange && vc.ReportCount > 1)
         {
-			// HidP_GetData doesn't support Value Arrays, so we have to fetch each element separately by Usage.
-            for (uint16_t j = 0; j < vc.ReportCount && m_AxesLength < kAxesLengthCap; ++j)
+            const uint16_t di = vc.NotRange.DataIndex;
+            const size_t   firstSlot = m_AxesLength;
+
+            for (uint16_t j = 0;
+                j < vc.ReportCount && m_AxesLength < kAxesLengthCap;
+                ++j)
             {
                 axisSlotUsed.set(m_AxesLength);
 
-                auto [lMin, lMax, mask, isSigned] = ParseLogicalRange(vc);
+                const auto [lMin, lMax, mask, isSigned] = ParseLogicalRange(vc);
                 AxisState& ax = m_Axes[m_AxesLength++];
                 ax.logicalMin = lMin;
                 ax.logicalMax = lMax;
@@ -460,13 +531,17 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
                 ax.units = vc.Units;
                 ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
                 ax.bitSize = vc.BitSize;
-                ax.reportCount = j == 0 ? vc.ReportCount : 0;
+                ax.reportCount = (j == 0) ? vc.ReportCount : 0;
             }
 
-			continue;
+            if (di < m_DataIndexTable.size())
+                m_DataIndexTable[di] = { Kind::ValueArray,
+                                         static_cast<uint8_t>(firstSlot),
+                                         vc.ReportID };
+            continue;
         }
 
-        // ---- hat ----
+        // ---- Hat (POV) ----
         if (IsPOV(vc) && nextFreeHat < kHatsLengthCap)
         {
             const auto [lMin, lMax, mask, signed_] = ParseLogicalRange(vc);
@@ -494,24 +569,22 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
             continue;
         }
 
-        // ---- axis ----
+        // ---- Regular axis ----
         const uint16_t usageMin = static_cast<uint16_t>(
             vc.IsRange ? vc.Range.UsageMin : vc.NotRange.Usage);
 
+        // Prefer the slot that matches the HID generic desktop usage offset
+        // (X=0, Y=1, Z=2, Rx=3, Ry=4, Rz=5, Slider=6, Dial=7).
         const size_t prefSlot = (usageMin >= HID_USAGE_GENERIC_X)
             ? static_cast<size_t>(usageMin - HID_USAGE_GENERIC_X)
             : kAxesLengthCap;
 
         size_t slot = kAxesLengthCap;
         if (prefSlot < kAxesLengthCap && !axisSlotUsed[prefSlot])
-        {
             slot = prefSlot;
-        }
         else
-        {
             for (size_t s = 0; s < kAxesLengthCap; ++s)
                 if (!axisSlotUsed[s]) { slot = s; break; }
-        }
 
         if (slot >= kAxesLengthCap)
             continue;
@@ -548,12 +621,13 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
                                          vc.ReportID };
     }
 
+    // Allocate value array buffer sized for the largest array.
     size_t maxArrayBytes = 0;
     for (size_t i = 0; i < m_AxesLength; ++i)
-    {
         if (m_Axes[i].reportCount > 1)
-            maxArrayBytes = std::max(maxArrayBytes, static_cast<size_t>((m_Axes[i].bitSize * m_Axes[i].reportCount + 7) / 8));
-    }
+            maxArrayBytes = std::max(maxArrayBytes,
+                static_cast<size_t>(
+                    (m_Axes[i].bitSize * m_Axes[i].reportCount + 7) / 8));
 
-	m_InputReport.valueArrayBuffer.resize(maxArrayBytes); // for HidP_GetUsageValueArray
+    m_InputReport.valueArrayBuffer.resize(maxArrayBytes);
 }
