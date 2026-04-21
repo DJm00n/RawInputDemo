@@ -7,11 +7,24 @@
 
 class RawInputDeviceManager;
 
+enum class SwitchPosition : uint8_t
+{
+    Center = 0,
+    Up = 1,
+    UpRight = 2,
+    Right = 3,
+    DownRight = 4,
+    Down = 5,
+    DownLeft = 6,
+    Left = 7,
+    UpLeft = 8,
+};
+
 class RawInputDeviceHid : public RawInputDevice
 {
     static constexpr size_t kAxesLengthCap = 16;
     static constexpr size_t kButtonsLengthCap = 32;
-    static constexpr size_t kHatsLengthCap = 4;
+    static constexpr size_t kSwitchLengthCap = 4;
 
 public:
     ~RawInputDeviceHid();
@@ -30,14 +43,15 @@ public:
     uint16_t GetUsageId()   const { return m_UsageId; }
 
     // Normalised axis value: [-1, +1] for absolute, raw delta for relative.
-    float   GetAxis(size_t i)   const { return i < m_AxesLength ? m_Axes[i].value : 0.f; }
-    bool    GetButton(size_t i) const { return i < m_ButtonsLength ? m_Buttons[i].value : false; }
-    // Hat / POV in hundredths of a degree [0, 35900], or -1 = centred.
-    int32_t GetHat(size_t i)    const { return i < m_HatsLength ? m_Hats[i].value : -1; }
+    float   GetAxis(size_t i)   const { return i < m_AxisCount ? m_Axis[i].value : 0.f; }
+    bool    GetButton(size_t i) const { return i < m_ButtonCount ? m_Buttons[i].value : false; }
 
-    size_t GetAxesLength()    const { return m_AxesLength; }
-    size_t GetButtonsLength() const { return m_ButtonsLength; }
-    size_t GetHatsLength()    const { return m_HatsLength; }
+    // Switch / Hat / POV
+    SwitchPosition GetSwitch(size_t i)    const { return i < m_SwitchCount ? m_Switches[i].value : SwitchPosition::Center; }
+
+    size_t GetAxisCount()    const { return m_AxisCount; }
+    size_t GetButtonCount() const { return m_ButtonCount; }
+    size_t GetSwitchCount()    const { return m_SwitchCount; }
 
 protected:
     explicit RawInputDeviceHid(HANDLE handle);
@@ -87,17 +101,17 @@ protected:
         uint16_t reportCount = 1;
     };
 
-    struct HatState
+    struct SwitchState
     {
-        int32_t  value = -1; // hundredths of a degree; -1 = centred
-        int32_t  logicalMin = 0;
-        int32_t  logicalMax = 0;
-        uint16_t povGranularity = 0;  // 36000 / (logicalMax - logicalMin + 1)
+        SwitchPosition value = SwitchPosition::Center;
+        int32_t        logicalMin = 0;
+        int32_t        logicalMax = 0;
+        uint16_t       povGranularity = 0; // 36000 / (logicalMax - logicalMin + 1)
     };
 
     const ButtonState& GetButtonState(size_t i) const { return m_Buttons[i]; }
-    const AxisState& GetAxisState(size_t i)   const { return m_Axes[i]; }
-    const HatState& GetHatState(size_t i)    const { return m_Hats[i]; }
+    const AxisState& GetAxisState(size_t i)   const { return m_Axis[i]; }
+    const SwitchState& GetSwitchState(size_t i)    const { return m_Switches[i]; }
 
 private:
     bool QueryDeviceCapabilities();
@@ -107,11 +121,11 @@ private:
     // Dispatch table entry indexed by HIDP_DATA::DataIndex.
     // Kind::ButtonArray → index is the first slot; individual buttons read via HidP_GetButtonArray.
     // Kind::ValueArray  → index is the first slot; individual values read via HidP_GetUsageValueArray.
-    enum class Kind : uint8_t { None, Axis, Hat, Button, ButtonArray, ValueArray };
+    enum class Kind : uint8_t { None, Axis, Switch, Button, ButtonArray, ValueArray };
     struct DataIndexEntry
     {
         Kind    kind = Kind::None;
-        uint8_t index = 0;   // index into m_Axes / m_Hats / m_Buttons
+        uint8_t index = 0;   // index into m_Axes / m_Switches / m_Buttons
         uint8_t reportId = 0;
     };
 
@@ -142,14 +156,14 @@ private:
 
     PreparsedData m_PreparsedData;
 
-    size_t      m_AxesLength = 0;
-    AxisState   m_Axes[kAxesLengthCap]{};
+    size_t      m_AxisCount = 0;
+    AxisState   m_Axis[kAxesLengthCap]{};
 
-    size_t      m_ButtonsLength = 0;
+    size_t      m_ButtonCount = 0;
     ButtonState m_Buttons[kButtonsLengthCap]{};
 
-    size_t   m_HatsLength = 0;
-    HatState m_Hats[kHatsLengthCap]{};
+    size_t   m_SwitchCount = 0;
+    SwitchState m_Switches[kSwitchLengthCap]{};
 
     std::vector<DataIndexEntry> m_DataIndexTable;
     InputReport                 m_InputReport;
