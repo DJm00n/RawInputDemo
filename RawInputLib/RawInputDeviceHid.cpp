@@ -13,16 +13,6 @@
 
 namespace
 {
-    // Linear map [logMin, logMax] → [-1, +1].
-    float NormaliseAxis(int32_t v, int32_t logMin, int32_t logMax)
-    {
-        const int32_t range = logMax - logMin;
-        if (range == 0)
-            return 0.f;
-        return std::clamp(2.f * static_cast<float>(v - logMin) / range - 1.f,
-            -1.f, 1.f);
-    }
-
     bool IsPOV(const HIDP_VALUE_CAPS& vc)
     {
         if (vc.IsRange)
@@ -32,72 +22,43 @@ namespace
             || (vc.UsagePage == HID_USAGE_PAGE_GAME && u == HID_USAGE_GAME_POV);
     }
 
-    struct ParsedRange { int32_t lMin, lMax, mask; bool isSigned; };
-
-    int32_t SignMask(uint16_t bitCount)
-    {
-        if (bitCount == 0 || bitCount >= 32)
-            return 0;
-        return ~((1 << (bitCount - 1)) - 1);
-    }
+    struct ParsedRange { int32_t logicalMin, logicalMax; uint8_t bitSize; bool isSigned; };
 
     ParsedRange ParseLogicalRange(const HIDP_VALUE_CAPS& vc)
     {
-        const int32_t signMask = SignMask(vc.BitSize);
-        const int32_t unsignedMax = std::max(1, (1 << vc.BitSize) - 1);
+        const uint8_t bitSize = static_cast<uint8_t>(vc.BitSize);
 
+        // Invalid or unsupported bit size
+        if (bitSize == 0 || bitSize > 32)
+            return { 0, 1, 1, false };
+
+        const int32_t unsignedMax =
+            (bitSize == 32) ? INT32_MAX : ((1u << bitSize) - 1);
+
+        // Firmware sometimes leaves logical range unset
         if (vc.LogicalMin == 0 && vc.LogicalMax == 0)
-            return { 0, unsignedMax, unsignedMax, false };
+        {
+            return { 0, unsignedMax, bitSize, false };
+        }
 
-        if (vc.LogicalMin >= signMask && vc.LogicalMax <= ~signMask)
-            return { vc.LogicalMin, vc.LogicalMax, signMask, true };
+        const int32_t min = std::max(static_cast<int32_t>(vc.LogicalMin), -unsignedMax);
+        const int32_t max = std::min(static_cast<int32_t>(vc.LogicalMax), unsignedMax);
+        const bool isSigned = (min < 0);
 
-        if (vc.LogicalMin >= 0 && vc.LogicalMax <= unsignedMax)
-            return { vc.LogicalMin, vc.LogicalMax, unsignedMax, false };
-
-        return { signMask, ~signMask, signMask, true }; // bad firmware
+        return { min, max, bitSize, isSigned };
     }
 
-    uint32_t ExtractBits(const uint8_t* buf, size_t bufSize,
-        uint32_t bitOffset, uint32_t bitCount)
+    uint32_t ExtractBits(const uint8_t* buf, size_t bufSize, uint32_t bitOffset, uint32_t bitCount)
     {
         const uint32_t byteOffset = bitOffset / 8;
         const uint32_t bitShift = bitOffset % 8;
 
         uint32_t raw = 0;
-        std::memcpy(&raw, buf + byteOffset,
-            std::min<size_t>(4, bufSize - byteOffset));
+        std::memcpy(&raw, buf + byteOffset, std::min<size_t>(4, bufSize - byteOffset));
 
         raw >>= bitShift;
         raw &= (bitCount < 32) ? ((1u << bitCount) - 1u) : ~0u;
         return raw;
-    }
-
-    SwitchPosition SwitchValueToSwitchPosition(int32_t lv,
-        int32_t logMin, int32_t logMax, uint16_t granularity)
-    {
-        if (lv < logMin || lv > logMax)
-            return SwitchPosition::Center;
-
-        // Convert to hundredths of a degree
-        const int32_t angle = (lv - logMin) * granularity;
-
-        // 8 directions, each spanning 45° = 4500 hundredths
-        // Add half-step (2250) before dividing to get nearest direction
-        const int32_t index = ((angle + 2250) % 36000) / 4500;
-
-        // index 0..7 → Up, UpRight, Right, DownRight, Down, DownLeft, Left, UpLeft
-        static constexpr SwitchPosition kMap[8] = {
-            SwitchPosition::Up,
-            SwitchPosition::UpRight,
-            SwitchPosition::Right,
-            SwitchPosition::DownRight,
-            SwitchPosition::Down,
-            SwitchPosition::DownLeft,
-            SwitchPosition::Left,
-            SwitchPosition::UpLeft,
-        };
-        return kMap[index];
     }
 } // namespace
 
@@ -253,30 +214,21 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
             {
                 AxisState& ax = m_Axis[e.index];
                 int32_t lv = static_cast<int32_t>(d.RawValue);
-                if (ax.signMask && (lv & ax.signMask))
-                    lv = ax.isSigned ? (lv | ax.signMask) : (lv & ~ax.signMask);
-                ax.value = ax.isAbsolute
-                    ? NormaliseAxis(lv, ax.logicalMin, ax.logicalMax)
-                    : ax.value + static_cast<float>(lv);
+                ax.value = NormaliseAxis(lv, ax);
                 break;
             }
             case Kind::Switch:
             {
                 SwitchState& ss = m_Switches[e.index];
                 const int32_t lv = static_cast<int32_t>(d.RawValue);
-                ss.value = SwitchValueToSwitchPosition(lv,
-                    ss.logicalMin, ss.logicalMax, ss.povGranularity);
+                ss.value = NormaliseSwitch(lv, ss);
                 break;
             }
             case Kind::Button:
+            {
                 m_Buttons[e.index].value = (d.On != 0);
                 break;
-
-                // Arrays are handled in the dedicated passes below.
-            case Kind::ValueArray:
-            case Kind::ButtonArray:
-            case Kind::None:
-                break;
+            }
             }
         }
 
@@ -308,18 +260,13 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
                     {
                         if (i + j >= kAxesLengthCap) break;
 
-                        const uint32_t rawValue = ExtractBits(
+                        const uint32_t lv = ExtractBits(
                             m_InputReport.valueArrayBuffer.data(),
                             m_InputReport.valueArrayBuffer.size(),
                             j * ax.bitSize, ax.bitSize);
 
-                        AxisState& elem = m_Axis[i + j];
-                        int32_t lv = static_cast<int32_t>(rawValue);
-                        if (elem.signMask && (lv & elem.signMask))
-                            lv = elem.isSigned ? (lv | elem.signMask) : (lv & ~elem.signMask);
-                        elem.value = elem.isAbsolute
-                            ? NormaliseAxis(lv, elem.logicalMin, elem.logicalMax)
-                            : elem.value + static_cast<float>(lv);
+                        AxisState& ax2 = m_Axis[i + j];
+                        ax2.value = NormaliseAxis(lv, ax2);
                     }
                 }
 
@@ -363,7 +310,7 @@ void RawInputDeviceHid::OnInput(const RAWINPUT* input)
                         {
                             size_t slot = i + bad.ArrayIndex;
                             if (slot < m_ButtonCount)
-                                m_Buttons[slot].value = true;
+                                m_Buttons[slot].value = (bad.On != 0);
                         }
                     }
                 }
@@ -383,8 +330,8 @@ bool RawInputDeviceHid::QueryDeviceCapabilities()
     if (!m_PreparsedData.Load(m_Handle))
         return false;
 
-    if (!ReconstructDescriptor(m_PreparsedData.data, m_UsbInfo->m_HidReportDescriptor))
-        return false;
+    //if (!ReconstructDescriptor(m_PreparsedData.data, m_UsbInfo->m_HidReportDescriptor))
+    //    return false;
 
     HIDP_CAPS caps;
     if (HidP_GetCaps(m_PreparsedData.data, &caps) != HIDP_STATUS_SUCCESS)
@@ -452,17 +399,14 @@ void RawInputDeviceHid::QueryButtonCapabilities(uint16_t count)
 
 
             auto& mask = m_ButtonReportMasks[bc.ReportID];
-            for (size_t j = 0;
-                j < bc.ReportCount && firstSlot + j < kButtonsLengthCap;
-                ++j)
+            for (size_t j = 0; j < bc.ReportCount && firstSlot + j < kButtonsLengthCap; ++j)
             {
                 if (mask.size() <= firstSlot + j)
                     mask.resize(firstSlot + j + 1, false);
                 mask[firstSlot + j] = true;
             }
 
-            maxButtonArrayCount = std::max(maxButtonArrayCount,
-                static_cast<size_t>(bc.ReportCount));
+            maxButtonArrayCount = std::max(maxButtonArrayCount, static_cast<size_t>(bc.ReportCount));
             continue;
         }
 
@@ -529,7 +473,7 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
     for (uint16_t i = 0; i < count; ++i)
     {
         const HIDP_VALUE_CAPS& vc = rawCaps[i];
-        const auto [lMin, lMax, mask, isSigned] = ParseLogicalRange(vc);
+        const auto [logicalMin, logicalMax, bitSize, isSigned] = ParseLogicalRange(vc);
 
         // Value array: single Usage (IsRange == FALSE), ReportCount > 1.
         // HidP_GetData does not report individual elements — use HidP_GetUsageValueArray.
@@ -545,9 +489,9 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
                 axisSlotUsed.set(m_AxisCount);
 
                 AxisState& ax = m_Axis[m_AxisCount++];
-                ax.logicalMin = lMin;
-                ax.logicalMax = lMax;
-                ax.signMask = mask;
+                ax.logicalMin = logicalMin;
+                ax.logicalMax = logicalMax;
+                ax.bitSize = bitSize;
                 ax.isSigned = isSigned;
                 ax.isAbsolute = (vc.IsAbsolute != FALSE);
                 ax.usagePage = vc.UsagePage;
@@ -556,7 +500,6 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
                 ax.physicalMax = vc.PhysicalMax;
                 ax.units = vc.Units;
                 ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
-                ax.bitSize = vc.BitSize;
                 ax.reportCount = (j == 0) ? vc.ReportCount : 0;
             }
 
@@ -573,11 +516,13 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
             const size_t switchIdx = nextFreeSwitch++;
 
             SwitchState& ss = m_Switches[switchIdx];
-            ss.logicalMin = lMin;
-            ss.logicalMax = lMax;
+            ss.usagePage = vc.UsagePage;
+            ss.usage = static_cast<uint16_t>(vc.NotRange.Usage);
+            ss.logicalMin = logicalMin;
+            ss.logicalMax = logicalMax;
 
-            const int32_t lUnits = lMax - lMin + 1;
-            ss.povGranularity = (lUnits > 0)
+            const int32_t lUnits = logicalMax - logicalMin + 1;
+            ss.granularity = (lUnits > 0)
                 ? static_cast<uint16_t>(36000u / static_cast<uint32_t>(lUnits))
                 : 0u;
 
@@ -616,9 +561,9 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
         axisSlotUsed.set(slot);
 
         AxisState& ax = m_Axis[slot];
-        ax.logicalMin = lMin;
-        ax.logicalMax = lMax;
-        ax.signMask = mask;
+        ax.logicalMin = logicalMin;
+        ax.logicalMax = logicalMax;
+        ax.bitSize = bitSize;
         ax.isSigned = isSigned;
         ax.isAbsolute = (vc.IsAbsolute != FALSE);
         ax.usagePage = vc.UsagePage;
@@ -627,7 +572,6 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
         ax.physicalMax = vc.PhysicalMax;
         ax.units = vc.Units;
         ax.unitsExp = static_cast<int16_t>(vc.UnitsExp);
-        ax.bitSize = vc.BitSize;
 
         m_AxisCount = std::max(m_AxisCount, slot + 1);
 
@@ -647,9 +591,59 @@ void RawInputDeviceHid::QueryAxisCapabilities(uint16_t count)
     size_t maxArrayBytes = 0;
     for (size_t i = 0; i < m_AxisCount; ++i)
         if (m_Axis[i].reportCount > 1)
-            maxArrayBytes = std::max(maxArrayBytes,
-                static_cast<size_t>(
-                    (m_Axis[i].bitSize * m_Axis[i].reportCount + 7) / 8));
+            maxArrayBytes = std::max(maxArrayBytes, static_cast<size_t>((m_Axis[i].bitSize * m_Axis[i].reportCount + 7) / 8));
 
     m_InputReport.valueArrayBuffer.resize(maxArrayBytes);
+}
+
+float RawInputDeviceHid::NormaliseAxis(int32_t lv, const AxisState& ax)
+{
+    // Sign-extend value based on bit size
+    if (ax.isSigned && ax.bitSize < 32)
+    {
+        const int32_t shift = 32 - ax.bitSize;
+        lv = (lv << shift) >> shift;
+    }
+
+    // Relative axes accumulate deltas
+    if (!ax.isAbsolute)
+        return ax.value + static_cast<float>(lv);
+
+    // Linear map [logicalMin, logicalMax] → [-1, +1]
+    const float min = static_cast<float>(ax.logicalMin);
+    const float max = static_cast<float>(ax.logicalMax);
+    const float range = max - min;
+
+    if (range == 0.f)
+        return 0.f;
+
+    const float t = (static_cast<float>(lv) - min) / range;
+
+    return std::clamp(2.f * t - 1.f, -1.f, 1.f);
+}
+
+SwitchPosition RawInputDeviceHid::NormaliseSwitch(int32_t lv, const SwitchState& ss)
+{
+    if (lv < ss.logicalMin || lv > ss.logicalMax)
+        return SwitchPosition::Center;
+
+    // Convert to hundredths of a degree
+    const int32_t angle = (lv - ss.logicalMin) * ss.granularity;
+
+    // 8 directions, each spanning 45° = 4500 hundredths
+    // Add half-step (2250) before dividing to get nearest direction
+    const int32_t index = ((angle + 2250) % 36000) / 4500;
+
+    // index 0..7 → Up, UpRight, Right, DownRight, Down, DownLeft, Left, UpLeft
+    static constexpr SwitchPosition kMap[8] = {
+        SwitchPosition::Up,
+        SwitchPosition::UpRight,
+        SwitchPosition::Right,
+        SwitchPosition::DownRight,
+        SwitchPosition::Down,
+        SwitchPosition::DownLeft,
+        SwitchPosition::Left,
+        SwitchPosition::UpLeft,
+    };
+    return kMap[index];
 }

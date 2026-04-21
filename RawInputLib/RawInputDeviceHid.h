@@ -81,7 +81,7 @@ protected:
         float   value = 0.f;
         int32_t logicalMin = 0;
         int32_t logicalMax = 0;
-        int32_t signMask = 0;
+        uint16_t bitSize = 0;
         bool    isSigned = false;
         bool    isAbsolute = true; // false → relative, accumulate delta
 
@@ -92,7 +92,6 @@ protected:
         int32_t  physicalMax = 0;
         uint32_t units = 0;
         int16_t  unitsExp = 0;
-        uint16_t bitSize = 0;
 
         // If > 1, this axis is the first element of a value array
         // of reportCount elements occupying consecutive slots in m_Axes.
@@ -104,9 +103,13 @@ protected:
     struct SwitchState
     {
         SwitchPosition value = SwitchPosition::Center;
+
+        // ---- metadata ----
+        uint16_t       usagePage = 0;
+        uint16_t       usage = 0;
         int32_t        logicalMin = 0;
         int32_t        logicalMax = 0;
-        uint16_t       povGranularity = 0; // 36000 / (logicalMax - logicalMin + 1)
+        uint16_t       granularity = 0; // 36000 / (logicalMax - logicalMin + 1)
     };
 
     const ButtonState& GetButtonState(size_t i) const { return m_Buttons[i]; }
@@ -117,6 +120,9 @@ private:
     bool QueryDeviceCapabilities();
     void QueryButtonCapabilities(uint16_t count);
     void QueryAxisCapabilities(uint16_t count);
+
+    static float NormaliseAxis(int32_t lv, const AxisState& ax);
+    static SwitchPosition NormaliseSwitch(int32_t lv, const SwitchState& ss);
 
     // Dispatch table entry indexed by HIDP_DATA::DataIndex.
     // Kind::ButtonArray → index is the first slot; individual buttons read via HidP_GetButtonArray.
